@@ -1,0 +1,19 @@
+{
+	"paths": {
+		"Names": "data/Names.json",
+		"fbs_labels": "data/FBS_Labels.csv",
+		"fbs": "data/FoodBalanceSheets_E_All_Data_NOFLAG.csv",
+		"bmi_bmr.csv": "data/BMI_BMR.csv",
+		"fao_regions.json": "data/fao_regions.json",
+		"food_to_surrogate.json": "data/food_to_surrogate.json",
+		"fao_livestock.csv": "data/FAO_Livestock2022.csv",
+		"population.nc": "data/B.Population.2000-2020.a.nc",
+		"fish_catch.nc": "data/B.fish_catch.nc",
+		"crop_prod_dir": "data/crop_prod",
+		"livestock_dir": "data/livestock_counts"
+	
+	},
+	"sesame_path": "/SESAME/src",
+	"data_dir": "",
+	"image_dir": ""
+}
