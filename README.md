@@ -8,6 +8,6 @@ xarray                    2024.6.0
 cartopy                   0.23.0
 seaborn                   0.13.2
 
-Additionally, the user must have sesametoolbox installed. Currently, this can be found at this link: https://github.com/A2Faisal/SESAME
+Additionally, the user must have sesame installed, which can be found at this link: https://github.com/A2Faisal/SESAME.
 
 
