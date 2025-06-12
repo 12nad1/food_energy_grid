@@ -1,19 +1,26 @@
 {
-	"paths": {
-		"Names": "data/Names.json",
-		"fbs_labels": "data/FBS_Labels.csv",
-		"fbs": "data/FoodBalanceSheets_E_All_Data_NOFLAG.csv",
-		"bmi_bmr.csv": "data/BMI_BMR.csv",
-		"fao_regions.json": "data/fao_regions.json",
-		"food_to_surrogate.json": "data/food_to_surrogate.json",
-		"fao_livestock.csv": "data/FAO_Livestock2022.csv",
-		"population.nc": "data/B.Population.2000-2020.a.nc",
-		"fish_catch.nc": "data/B.fish_catch.nc",
-		"crop_prod_dir": "data/crop_prod",
-		"livestock_dir": "data/livestock_counts"
-	
-	},
-	"sesame_path": "/SESAME/src",
-	"data_dir": "",
-	"image_dir": ""
+	"Names": "data/Names.json",
+	"fao_regions.json": "data/fao_regions.json",
+	"food_to_surrogate.json": "data/food_to_surrogate.json",
+	"fbs_labels": "data/FBS_Labels.csv",
+	"country_regions": "data/country_regions.csv",
+	"fbs": "data/FoodBalanceSheets_E_All_Data_NOFLAG.csv",
+	"fao_livestock.csv": "data/FAO_Livestock2022.csv",
+	"height_csv_path": "data/NCD_RisC_Lancet_2020_height_child_adolescent_country.csv",
+	"population_csv_path": "data/un_population.csv",
+	"bmi_csv_path": "data/LancetBMIDatabyCountry.csv",
+	"fbs_path": "data/FoodBalanceSheets_E_All_Data_NOFLAG.csv",
+	"fbs_labels_path": "data/FBS_labels.csv",
+	"old_fbs_path": "data/FAOSTAT_data_en_3-11-2025.csv",
+	"mets_moogal": "data/compendium_METS_MOOGAL_.csv",
+	"global_human_day": "data/global_human_day.csv",
+	"ghd_all_countries": "data/all_countries.csv",
+	"gdp_gapminder": "data/gdp_per_capita_gapminder.csv",
+	"population.nc": "data/Bh.Population.2000-2020.a.nc",
+	"fish_catch.nc": "data/B.fish_catch.nc",
+	"crop_prod_dir": "data/crop_prod",
+	"livestock_dir": "data/livestock_counts",
+	"data_dir": "data",
+	"image_dir": "new_images",
+	"output_dir": "output"
 }
