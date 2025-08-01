@@ -2,30 +2,15 @@
 
 ## Setup Instructions
 
-### 1. Create a Python Environment
+### 1. Create a Python Environment and Install Dependencies
 
-First, create a new Python virtual environment:
-
-```bash
-# Using conda (recommended)
-conda create -n food_energy_grid python=3.9
-conda activate food_energy_grid
-
-# Or using venv
-python -m venv food_energy_grid_env
-source food_energy_grid_env/bin/activate  # On macOS/Linux
-# food_energy_grid_env\Scripts\activate  # On Windows
-```
-
-### 2. Install Dependencies
-
-Install SESAME-IESD and its dependencies by following the instructions at: https://github.com/A2Faisal/SESAME. 
+Install SESAME-IESD and its dependencies by following the instructions at: https://github.com/A2Faisal/SESAME. Below is an example 
 
 ```bash
 # create a new conda environment
-conda create -n sesame_env
+conda create -n my_env
 # activate the environment
-conda activate sesame_env
+conda activate my_env
 # install pip
 conda install pip
 # install SESAME from testPyPI
