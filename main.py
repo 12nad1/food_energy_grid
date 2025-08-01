@@ -90,7 +90,7 @@ def remove_multi_country_regions(fbs_df):
     fbs1 = fbs1[~fbs1['Area'].isin(multi_ctry_regions)]
     return fbs1
 
-def adjust_production_based_on_trade(fbs):
+def old_adjust_production_based_on_trade(fbs):
     """Adjust production values to account for global trade imbalances
     
     Calculates adjustment factors based on the difference between imports and exports
@@ -106,8 +106,145 @@ def adjust_production_based_on_trade(fbs):
     
     # Apply adjustment factors
     df = pd.merge(fbs, grouped['import-export-factor'], how='left', on='Item')
-    fbs['AdjustedProd'] = df['Production'] * df['import-export-factor']
+    fbs['Production_adj'] = df['Production'] * df['import-export-factor']
     
+    return fbs
+
+def adjust_production_based_on_trade(fbs, verbose=False):
+    """Adjust production values to account for global trade imbalances using quadratic optimization
+    
+    Calculates adjustment factors based on the difference between imports and exports
+    to ensure global mass balance in the food system analysis.
+    """
+    import cvxpy as cp
+
+    # Group by item
+    for item, group in fbs.groupby("Item"):
+        idx = group.index
+        n = len(group)
+
+        # Extract variables
+        P_orig = group["Production"].values
+        I_orig = group["Import Quantity"].values
+        E_orig = group["Export Quantity"].values
+        U_orig = group["Domestic supply quantity"].values
+
+        # Define cvxpy variables
+        P = cp.Variable(n)
+        E = cp.Variable(n)
+        U = cp.Variable(n)
+        I = cp.Variable(n)
+
+        epsilon = 1e-6
+
+        objective = cp.Minimize(
+            (
+                cp.sum_squares((P - P_orig) / (P_orig + epsilon)) +
+                cp.sum_squares((E - E_orig) / (E_orig + epsilon)) +
+                cp.sum_squares((U - U_orig) / (U_orig + epsilon)) + 
+                2*cp.sum_squares((I - I_orig) / (I_orig + epsilon))
+            )
+        )
+
+        # Constraints
+        constraints = [
+            P + I == E + U,            # local mass balance
+            cp.sum(P) == cp.sum(U),    # global P = global U
+            cp.sum(E) == cp.sum(I),    # global E = global I
+            P >= 0, E >= 0, U >= 0, I >= 0  # non-negativity
+        ]
+
+        # Ensure that the adjusted values are within a factor of the original values
+        # This is infeasible so we don't use it
+        # factor = 10
+        # constraints += [
+        # P >= 1/factor * P_orig,
+        # P <= factor * P_orig,
+        # E >= 1/factor * E_orig,
+        # E <= factor * E_orig,
+        # U >= 1/factor * U_orig,
+        # U <= factor * U_orig
+        # # I >= 1/factor * I_orig,
+        # # I <= factor * I_orig
+        # ]
+
+        # Solve
+        problem = cp.Problem(objective, constraints)
+
+        print(f"Solving for item '{item}'", end=" ")
+        try:
+            problem.solve(solver=cp.OSQP, max_iter=int(1e7), verbose=False)  # or OSQP/ECOS/SCS
+        except Exception as e:
+            print(f"❌ Optimization failed: {e}")
+            continue
+
+        if problem.status not in ["optimal", "optimal_inaccurate"]:
+            print(f"⚠️ Optimization failed for item '{item}': {problem.status}")
+        else:
+            print(f"✅ Optimization succeeded")
+
+        # Save adjusted results
+        fbs.loc[idx, 'Production_adj'] = P.value
+        fbs.loc[idx, 'Export Quantity_adj'] = E.value
+        fbs.loc[idx, 'Domestic supply quantity_adj'] = U.value
+        fbs.loc[idx, 'Import Quantity_adj'] = I.value
+
+    # I didn't round it initially but maybe I should.
+    # adj_cols = [col for col in fbs.columns if col[-4:] == '_adj']
+    # fbs[adj_cols] = fbs[adj_cols].round().astype(int)
+    # assert (fbs[adj_cols] >= 0).all().all(), "Found negative values in adjusted columns"
+
+    # This takes 5+ minutes to run
+    # for food in fbs['Item'].unique():
+    #     try:
+    #         print(abs(fbs[fbs['Item'] == food]['Production_adj'].sum() - fbs[fbs['Item'] == food]['Domestic supply quantity_adj'].sum()))
+    #         print(abs(fbs[fbs['Item'] == food]['Export Quantity_adj'].sum() - fbs[fbs['Item'] == food]['Import Quantity_adj'].sum()))
+    #         assert(abs(fbs[fbs['Item'] == food]['Production_adj'].sum() - fbs[fbs['Item'] == food]['Domestic supply quantity_adj'].sum()) < 10)
+    #         assert(abs(fbs[fbs['Item'] == food]['Export Quantity_adj'].sum() - fbs[fbs['Item'] == food]['Import Quantity_adj'].sum()) < 10)
+    #         for area in fbs['Area'].unique():
+    #             P = fbs[fbs['Area'] == area][fbs['Item'] == food]['Production_adj'].sum()
+    #             U = fbs[fbs['Area'] == area][fbs['Item'] == food]['Domestic supply quantity_adj'].sum()
+    #             E = fbs[fbs['Area'] == area][fbs['Item'] == food]['Export Quantity_adj'].sum()
+    #             I = fbs[fbs['Area'] == area][fbs['Item'] == food]['Import Quantity_adj'].sum()
+    #             print(abs(P + I - E - U))
+    #             assert(abs(P + I - E - U) < 2)
+    #     except AssertionError:
+    #         print(f'{food} failed')
+    #         break
+
+    print("✅ Optimization completed for all items.")
+    fbs.to_csv('balanced_fbs.csv')
+
+    if verbose:
+        fbs['delta_production'] = (fbs['Production_adj'] - fbs['Production'])
+        fbs['delta_exports'] = (fbs['Export Quantity_adj'] - fbs['Export Quantity'])
+        fbs['delta_domestic'] = (fbs['Domestic supply quantity_adj'] - fbs['Domestic supply quantity'])
+        fbs['delta_imports'] = (fbs['Import Quantity_adj'] - fbs['Import Quantity'])
+
+        # fbs.replace([np.inf, -np.inf], np.nan).sort_values('production_percent_change', ascending=False)
+        fbs['production_percent_change'] = (100 * fbs['delta_production'] / fbs['Production']).replace([np.inf, -np.inf], np.nan)
+        fbs['domestic_percent_change'] = (100 * fbs['delta_domestic'] / fbs['Domestic supply quantity']).replace([np.inf, -np.inf], np.nan)
+        fbs['imports_percent_change'] = (100 * fbs['delta_imports'] / fbs['Import Quantity']).replace([np.inf, -np.inf], np.nan)
+        fbs['exports_percent_change'] = (100 * fbs['delta_exports'] / fbs['Export Quantity']).replace([np.inf, -np.inf], np.nan)
+
+        print("Global percent change")
+        for delta, col in [('delta_exports', 'Export Quantity'), ('delta_domestic', 'Domestic supply quantity'), ('delta_production', 'Production'), ('delta_imports', 'Import Quantity')]:
+            print(f"{delta}: {fbs[delta].sum() / fbs[col].sum() * 100:.2f}%")
+
+        print("Maximum percent change")
+        for percent_change in ['production_percent_change', 'domestic_percent_change', 'imports_percent_change', 'exports_percent_change']:
+            print(f"{percent_change}: {fbs.set_index(['Area','Item'])[percent_change].idxmax()}, {fbs.set_index(['Area','Item'])[percent_change].max():.2f}%")
+
+    for food in fbs['Item'].unique():
+        assert(abs(fbs[fbs['Item'] == food]['Production_adj'].sum() - fbs[fbs['Item'] == food]['Domestic supply quantity_adj'].sum()) < 1)
+        assert(abs(fbs[fbs['Item'] == food]['Export Quantity_adj'].sum() - fbs[fbs['Item'] == food]['Import Quantity_adj'].sum()) < 1)
+        for area in fbs['Area'].unique():
+            P = fbs[fbs['Area'] == area][fbs['Item'] == food]['Production_adj'].sum()
+            U = fbs[fbs['Area'] == area][fbs['Item'] == food]['Domestic supply quantity_adj'].sum()
+            E = fbs[fbs['Area'] == area][fbs['Item'] == food]['Export Quantity_adj'].sum()
+            I = fbs[fbs['Area'] == area][fbs['Item'] == food]['Import Quantity_adj'].sum()
+            assert(abs(P + I - E - U) < 1)
+
     return fbs
 
 def add_population_data(fbs, fbs_df):
@@ -133,38 +270,61 @@ def convert_production_to_energy(fbs):
     fbs['kcalpkg'] = fbs['kcalpkg'].fillna(fbs['Food supply (kcal)'] / fbs['Domestic supply quantity']).replace([np.inf, -np.inf], np.nan)
     
     # Separate production by type
-    fbs['CropProdMCal'] = fbs.apply(lambda r: r['AdjustedProd']*r['kcalpkg'] if r['Class'] == 'Crop' and r['Processed'] != 'Yes' else 0, axis=1)
-    fbs['AnimProdMCal'] = fbs.apply(lambda r: r['AdjustedProd']*r['kcalpkg'] if r['Class'] in ['Livestock', 'Seafood'] and r['Processed'] != 'Yes' else 0, axis=1)
-    fbs['ProcProdMCal'] = fbs.apply(lambda r: r['AdjustedProd']*r['kcalpkg'] if r['Processed'] == 'Yes' else 0, axis=1)
+    fbs['CropProdMCal'] = fbs.apply(lambda r: r['Production_adj']*r['kcalpkg'] if r['Class'] == 'Crop' and r['Processed'] != 'Yes' else 0, axis=1)
+    fbs['AnimProdMCal'] = fbs.apply(lambda r: r['Production_adj']*r['kcalpkg'] if r['Class'] in ['Livestock', 'Seafood'] and r['Processed'] != 'Yes' else 0, axis=1)
+    fbs['ProcProdMCal'] = fbs.apply(lambda r: r['Production_adj']*r['kcalpkg'] if r['Processed'] == 'Yes' else 0, axis=1)
     
     # Also for masses (tons)
-    fbs['CropProd'] = fbs.apply(lambda r: r['AdjustedProd'] if r['Class'] == 'Crop' and r['Processed'] != 'Yes' else 0, axis=1)
-    fbs['AnimProd'] = fbs.apply(lambda r: r['AdjustedProd'] if r['Class'] in ['Livestock', 'Seafood'] and r['Processed'] != 'Yes' else 0, axis=1)
-    fbs['ProcProd'] = fbs.apply(lambda r: r['AdjustedProd'] if r['Processed'] == 'Yes' else 0, axis=1)
+    fbs['CropProd'] = fbs.apply(lambda r: r['Production_adj'] if r['Class'] == 'Crop' and r['Processed'] != 'Yes' else 0, axis=1)
+    fbs['AnimProd'] = fbs.apply(lambda r: r['Production_adj'] if r['Class'] in ['Livestock', 'Seafood'] and r['Processed'] != 'Yes' else 0, axis=1)
+    fbs['ProcProd'] = fbs.apply(lambda r: r['Production_adj'] if r['Processed'] == 'Yes' else 0, axis=1)
 
-    # Convert other columns to energy units
-    for fbs_col in ['Feed', 'Food', 'Processing', 'Losses', 'Residuals', 'Seed', 'Stock Variation',
-                    'Tourist consumption', 'Import Quantity', 'Export Quantity']:
+    # Convert utilization columns to Energy Units
+    for fbs_col in ['Feed', 'Food', 'Processing', 'Losses', 'Residuals', 'Seed', 'Stock Variation']:
+        print('rescaling', fbs_col)
         new_col = fbs_col[:4] + 'MCal'
         fbs[new_col] = fbs.apply(lambda r: r[fbs_col]*r['kcalpkg'], axis=1)
+        # Check for division by zero and handle edge cases
+        mask = (fbs['Domestic supply quantity'] != 0) & (fbs['Domestic supply quantity_adj'] != 0)
+        fbs.loc[mask, new_col] = fbs.loc[mask, new_col] * fbs.loc[mask, 'Domestic supply quantity_adj'] / fbs.loc[mask, 'Domestic supply quantity']
+        
+        # If original is 0 and adjusted is within tolerance, keep as 0
+        tolerance = 1e-6
+        zero_original_mask = (fbs['Domestic supply quantity'] == 0) & (fbs['Domestic supply quantity_adj'].abs() <= tolerance)
+        fbs.loc[zero_original_mask, new_col] = 0
+        
+        # If adjusted is 0 and original is within tolerance, keep as 0  
+        zero_adjusted_mask = (fbs['Domestic supply quantity_adj'] == 0) & (fbs['Domestic supply quantity'].abs() <= tolerance)
+        fbs.loc[zero_adjusted_mask, new_col] = 0
+        
+        # Raise error for other cases where one is 0 and the other is not
+        problematic_mask = ((fbs['Domestic supply quantity'] == 0) & (fbs['Domestic supply quantity_adj'].abs() > tolerance)) | \
+                          ((fbs['Domestic supply quantity_adj'] == 0) & (fbs['Domestic supply quantity'].abs() > tolerance))
+        if problematic_mask.any():
+            raise ValueError(f"Division by zero or infinite value would result. Check rows where Domestic supply quantity or Domestic supply quantity_adj are zero but the other is not.")
     
-    # Calculate food supply in MCal and other unaccounted utilization
+    # Convert Production, Imports, and Exports to Energy Units
+    for fbs_col in ['Production_adj', 'Export Quantity_adj', 'Domestic supply quantity_adj', 'Import Quantity_adj']:
+        new_col = fbs_col[:4] + 'MCal'
+        fbs[new_col] = fbs.apply(lambda r: r[fbs_col]*r['kcalpkg'], axis=1)
+
+    # Calculate other useful MCal columns
     fbs['FoodSupplyMCal'] = fbs['Food supply (kcal)']
-    fbs['FoodSupplyT'] = fbs.apply(lambda r: r['FoodSupplyMCal']/r['kcalpkg'] if r['kcalpkg'] != 0 else np.nan, axis=1) # divide by ratio to get Tons
-    fbs['OtherMCal'] = fbs['CropProdMCal'] + fbs['AnimProdMCal'] + fbs['ProcProdMCal'] - fbs['FeedMCal'] - fbs['ProcMCal'] - fbs['FoodSupplyMCal']
-    
-    fbs['ConsMCal'] = fbs['FoodSupplyMCal']
+    fbs['FoodMCal'] = fbs['FoodMCal'] * fbs['Domestic supply quantity_adj'] / fbs['Domestic supply quantity']
     fbs['ProdMCal'] = fbs['CropProdMCal'] + fbs['AnimProdMCal'] + fbs['ProcProdMCal']
+    fbs['OtherMCal'] = fbs['ProdMCal'] - fbs['FeedMCal'] - fbs['ProcMCal'] - fbs['FoodSupplyMCal']
+    fbs['ConsMCal'] = fbs['FoodSupplyMCal'] + fbs['FeedMCal']
+
+    # Get mass
+    fbs['FoodSupplyT'] = fbs.apply(lambda r: r['FoodSupplyMCal']/r['kcalpkg'] if r['kcalpkg'] != 0 else np.nan, axis=1) # divide by ratio to get Tons
     return fbs
 
 def get_livestock_df(config):
-    with open(config['fao_regions.json']) as json_file:
-        fao_regions = json.load(json_file)
+    with open(config['fao_ctry_to_regions.json']) as json_file:
+        fao_country_to_region = json.load(json_file)
     with open(config['Names']) as json_file:
         Names = json.load(json_file)
     
-    fao_country_to_region = {country: region for region, countries in fao_regions.items() for country in countries}
-
     # Source: https://www.fao.org/3/i2294e/i2294e00.pdf
     lsu_data = {
         'Region': ['Near East North Africa', 'North America', 'Africa South of Sahara', 'Central America', 'South America', 'South Africa', 'OeCD', 'East and South East Asia', 'South Asia', 'Transition Markets', 'Caribbean', 'Near East', 'Other'],
@@ -223,6 +383,55 @@ def compare_aggregate_elements(fbs):
     print('cons', cons)
     print(df)
 
+def get_available_production(fbs):
+    """Get available production for each country and food item
+    
+    Calculates available production for each country and food item based on
+    domestic supply, imports, and exports.
+    """
+    # Load Data
+    F_if = fbs.pivot(index='Area', columns='Item', values='FoodMCal').fillna(0)
+    P_if = fbs.pivot(index='Area', columns='Item', values='ProdMCal').fillna(0)
+    I_if = fbs.pivot(index='Area', columns='Item', values='ImpoMCal').fillna(0)
+    E_if = fbs.pivot(index='Area', columns='Item', values='ExpoMCal').fillna(0)
+    U_if = fbs.pivot(index='Area', columns='Item', values='DomeMCal').fillna(0)
+
+    # Initialize result table
+    AP_if = pd.DataFrame(0.0, index=F_if.index, columns=F_if.columns)
+
+    # Compute LocalFrac = F / U
+    LocalFrac = F_if / U_if
+    LocalFrac = LocalFrac.replace([np.inf, -np.inf], 0).fillna(0)
+
+    # Compute Available Food
+    for i in F_if.index:
+        # Local share of domestic availability
+        local_prod_thats_food = (P_if.loc[i] - E_if.loc[i]) * LocalFrac.loc[i]
+
+        # Import share: sum over j ≠ i of LocalFrac_j * E_j * share_ij
+        export_prod_thats_food = pd.Series(0.0, index=F_if.columns)
+
+        for j in F_if.index:
+            if j == i:
+                continue
+            # Fraction of j's exports that go to i, proportional to i's imports
+            share_ij = (I_if.loc[j] / I_if.sum(axis=0)).replace([np.inf, -np.inf], 0).fillna(0)
+            export_prod_thats_food += E_if.loc[j] * LocalFrac.loc[j] * share_ij
+
+        # Total available food in i for each commodity
+        AP_if.loc[i] = local_prod_thats_food + export_prod_thats_food
+
+    # If the fractions exceed production, we need to clip the result to the production
+    AP_if = pd.DataFrame(np.minimum(AP_if, P_if), index=AP_if.index, columns=AP_if.columns)
+    AP_long = AP_if.stack().reset_index()
+    AP_long.columns = ['Area', 'Item', 'AvailableProductionMCal']
+    # Also clip negative values to 0 (mostly from floating point error but dividing by small values and multiplying by calories makes it significant)
+    AP_long.loc[AP_long['AvailableProductionMCal'] < 0, 'AvailableProductionMCal'] = 0
+
+    fbs = fbs.merge(AP_long, on=['Area', 'Item'], how='left')
+
+    return fbs
+
 def process_tabular_data(config, verbose=False):
     """Process FAO Food Balance Sheet data into analysis-ready format
     
@@ -271,6 +480,11 @@ def process_tabular_data(config, verbose=False):
         print("Converting production to energy units and calculating available production...")
     fbs = convert_production_to_energy(fbs)
 
+    # Get available production
+    if verbose:
+        print("Calculating available production...")
+    fbs = get_available_production(fbs)
+
     if verbose:
         print("Comparing aggregate elements...")
         compare_aggregate_elements(fbs)
@@ -279,10 +493,10 @@ def process_tabular_data(config, verbose=False):
     cols = ['Item', 'Area', 'Processed', 'Domestic supply quantity', 'Export Quantity', 'Losses',
         'Fat supply quantity (t)', 'Feed', 'Import Quantity', 'Food', 'Other uses (non-food)',
         'Processing', 'Production', 'Protein supply quantity (t)', 'Residuals', 'Seed',
-        'Stock Variation', 'Tourist consumption', 'AdjustedProd', 'CropProdMCal', 'AnimProdMCal',
+        'Stock Variation', 'Tourist consumption', 'Production_adj', 'CropProdMCal', 'AnimProdMCal',
         'ProcProdMCal', 'CropProd', 'AnimProd', 'ProcProd', 'FeedMCal', 'FoodMCal', 'ProcMCal',
-        'LossMCal', 'ResiMCal', 'SeedMCal', 'StocMCal', 'TourMCal', 'ImpoMCal', 'ExpoMCal',
-        'FoodSupplyMCal', 'FoodSupplyT', 'OtherMCal', 'ConsMCal', 'ProdMCal']
+        'LossMCal', 'ResiMCal', 'SeedMCal', 'StocMCal', 'ImpoMCal', 'ExpoMCal',
+        'FoodSupplyMCal', 'FoodSupplyT', 'OtherMCal', 'ConsMCal', 'ProdMCal', 'AvailableProductionMCal']
     
     fbscatdf = fbs[cols].groupby(['Area', 'Item']).sum().reset_index()
     fbscatdf = fbscatdf.pivot(index='Area', columns=['Item'], values=list(fbscatdf.columns)[2:])
@@ -809,6 +1023,7 @@ def create_metabolism_dataframe(config, verbose=False):
     if verbose:
         print(f"Mass and BMR computed for {len(df['iso3'].unique())} countries")
 
+
     # Process food supply data
     if verbose:
         print("Loading food supply data...")
@@ -966,6 +1181,7 @@ def downscale_fao(ds, config, fbs, fbscatdf):
         print(f'{100*i/len(list(fbs.Item.unique()))}% done, {food}')
         if item_to_surrogate[food] != 'NonSpatial':
             ds['fbs_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='ProdMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['ProdMCal ' + food]
+            ds['avail_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='AvailableProductionMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['AvailableProductionMCal ' + food]
             # ds['fbs_prodT_' + food] = ssm.table_2_grid(item_to_surrogate[food], 'Production ' + food, ds, tabular_file=fbscatdf)['Production ' + food]
         # ds['fbs_supT_' + food] = ssm.table_2_grid('pop2015', 'FoodSupplyT ' + food, ds, tabular_file=fbscatdf)['FoodSupplyT ' + food]
         ds['fbs_cons_' + food] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='ConsMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['ConsMCal ' + food]
@@ -984,6 +1200,7 @@ def downscale_fao(ds, config, fbs, fbscatdf):
 
     for food in marine_surrogates.keys():
         ds['fbs_prod_' + food] = fbs[fbs['Item'] == food]['ProdMCal'].sum() * ds[marine_surrogates[food]]
+        ds['avail_prod_' + food] = fbs[fbs['Item'] == food]['AvailableProductionMCal'].sum() * ds[marine_surrogates[food]]
         # ds['fbs_prodT_' + food] = fbs[fbs['Item'] == food]['Production'].sum() * ds[marine_surrogates[food]]
     
     return ds
@@ -995,6 +1212,7 @@ def downscale_metabolism(ds, metabolism_2015, fbscatdf, verbose=False):
     metabolism_2015['bmr_MCal'] = metabolism_2015['BMR'] * metabolism_2015['total_population'] * 365 / 1e6
     metabolism_2015['tmr_MCal'] = metabolism_2015['TMR'] * metabolism_2015['total_population'] * 365 / 1e6
 
+    # TODO: delete this, deprecated
     # ds['bmr'] = xr.zeros_like(ds['grid_area'])
     # ds['bmr'] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='bmr_MCal', surrogate_file=ds.sel(time='2015'), tabular_file=metabolism_2015, verbose=verbose)['bmr_MCal']
     # ds['tmr'] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='tmr_MCal', surrogate_file=ds.sel(time='2015'), tabular_file=metabolism_2015, verbose=verbose)['tmr_MCal']
@@ -1025,49 +1243,13 @@ def downscale_metabolism(ds, metabolism_2015, fbscatdf, verbose=False):
 
     return ds
 
-def compute_mss_grid(ds, fbs, verbose=False):
-    ''' Compute the metabolic self-sufficiency of each food item at the grid cell level '''
-    if verbose:
-        print('mss food and avail_fraction:')
-    for prod_dv in ds.data_vars:
-        if prod_dv.startswith('fbs_prod_'):
-            food = prod_dv[9:]
-            avail_fraction = fbs[fbs['Item'] == food]['FoodSupplyMCal'].sum() / fbs[fbs['Item'] == food]['ProdMCal'].sum()
-            # if avail_fraction > 1:
-            #     avail_fraction = 1
-            if verbose:
-                if avail_fraction > 1:
-                    print(food, avail_fraction)
-            ds['avail_' + prod_dv] = avail_fraction * ds[prod_dv]
-
-    # Extract food names based on the prefixes
-    supply_vars = [v for v in ds.data_vars if v.startswith("fbs_supply_")]
-    prod_vars = [v for v in ds.data_vars if v.startswith("fbs_prod_")]
-
-    # Ensure matching prod/cons pairs
-    foods = [v[len("fbs_supply_"):] for v in supply_vars if f"fbs_prod_{v[len('fbs_supply_'):]}" in prod_vars]
-
-    # Stack all supply values to compute total supply
-    supply_sum = sum(ds[f"fbs_supply_{food}"].fillna(0) for food in foods)
-    for food in foods:
-        supply = ds[f"fbs_supply_{food}"].fillna(0)
-        prod = ds[f"fbs_prod_{food}"].fillna(0)
-        avail_prod = ds[f"avail_fbs_prod_{food}"].fillna(0)
-        tmr = ds[f"tmr_{food}"].fillna(0)
-
-        # Clip values where tmr_food is less than prod or prod is less than tmr_fod
-        ds[f"mss_{food}"] = xr.where(prod < tmr, prod, tmr)
-        ds[f"avail_mss_{food}"] = xr.where(avail_prod < tmr, avail_prod, tmr)
-
-    return ds
-
 def downscale_grid_data(config, fbs, ds, fbscatdf, livestock_df, metabolism_2015, verbose=False):
     """Downscale various data to the grid level using dasymetric mapping techniques"""
-    with open(config['fao_regions.json']) as json_file:
-        fao_regions = json.load(json_file)
-    fao_country_to_region = {country: region for region, countries in fao_regions.items() for country in countries}
+    with open(config['fao_ctry_to_regions.json']) as json_file:
+        fao_country_to_region = json.load(json_file)
 
     # Source: https://www.fao.org/3/i2294e/i2294e00.pdf
+    # Source: https://www.fao.org/4/i2294e/i2294e00.htm
     lsu_data = {
         'Region': ['Near East North Africa', 'North America', 'Africa South of Sahara', 'Central America', 'South America', 'South Africa', 'OeCD', 'East and South East Asia', 'South Asia', 'Transition Markets', 'Caribbean', 'Near East', 'Other'],
         'Cattle': [0.70, 1.00, 0.50, 0.70, 0.70, 0.70, 0.90, 0.65, 0.50, 0.60, 0.60, 0.55, 0.60],
@@ -1099,13 +1281,6 @@ def downscale_grid_data(config, fbs, ds, fbscatdf, livestock_df, metabolism_2015
         print("Downscaling metabolism data...")
     ds = downscale_metabolism(ds, metabolism_2015, fbscatdf)
     
-    ds.to_netcdf(os.path.join(config['output_dir'], 'downscaled_data.nc'))
-    if verbose:
-        print("Computing Min Metabolic Self Sufficiency...")
-    ds = compute_mss_grid(ds, fbs)
-    
-    ds.to_netcdf(os.path.join(config['output_dir'], 'downscaled_data.nc'))
-    print('TODO: remove the downscaled_data.nc saving steps and files after testing')
     return ds
 
 ###########################################################################
@@ -1278,6 +1453,9 @@ def make_fbsv_for_Voronoi(fbs, ds, output_dir):
     fbsv = fbsv.groupby(['Item', 'h2']).sum().reset_index()
     fbsv.rename(columns={'Item': 'h3'}, inplace=True)
 
+    # Compute total metabolism per grid cell
+    ds['met_Cal_p_grid_cell'] = sum([ds[dv].fillna(0) for dv in ds.data_vars if dv[:] == 'tmr_'])
+
     # Add Metabolism Column
     total_cons_supply_grid = sum([ds[dv].fillna(0) for dv in ds.data_vars if dv[:8] == 'fbs_cons']) #* 10**12 / ds['grid_area'] / 365  #6 for m to km, 6 for MC to C
     metabolism = {}
@@ -1353,18 +1531,15 @@ def make_fbsv_for_Voronoi(fbs, ds, output_dir):
         selected_rows = fbsv[fbsv['h1'] == h1val]
         total_weight = selected_rows['weight'].sum()
         if h1val[-4:] == 'MCal':
-            # print(h1val[:-4] + ':')
             C = total_weight * 10**6 / (7.4 * 10**9) / 365
-            area_scale_factor = 139.69
-            D = 2 * np.sqrt(C * area_scale_factor / np.pi)
-            # print('\t\t', round(C), 'Cal/person/day')
-            # print('\t\t', round(D), 'Voronoi Diameter')
+            print(h1val[:-4] + ':')
+            print('\t\t', round(C), 'Cal/person/day')
             voronoi_weights[h1val[:-4]] = C
         fbsv.loc[selected_rows.index, 'weight'] = selected_rows['weight'] / total_weight * 100
-        #fbsv.loc[selected_rows.index, 'weight'] = selected_rows['weight'] * 10**6 / (7.4*10**9) / 365
 
     prod = voronoi_weights['CropProd'] + voronoi_weights['AnimProd'] + voronoi_weights['ProcProd']
     cons = voronoi_weights['FoodSupply'] + voronoi_weights['Feed'] + voronoi_weights['Proc'] + voronoi_weights['Other']
+    print(voronoi_weights['FoodSupply'], voronoi_weights['Feed'], voronoi_weights['Proc'], voronoi_weights['Other'])
     assert(round(prod) == round(cons))
 
     fbsv['weight'] = fbsv['weight'].round(5) 
@@ -1399,7 +1574,8 @@ def make_metabolism_production_maps(ds, image_dir, map_projection='Robinson', th
     ##################
     ### METABOLISM ###
     ##################
-    tmrda = ds['tmr'] * 10**12 / ds['grid_area'] / 365 #6 for m to km, 6 for MC to C
+    tmr = sum([ds[dv].fillna(0) for dv in ds.data_vars if dv[:3] == 'tmr'])
+    tmrda = tmr * 10**12 / ds['grid_area'] / 365 #6 for m to km, 6 for MC to C
     tmrda_full = tmrda.copy()
     min_thresh_mask = tmrda.to_numpy() > thresh
     tmrda = tmrda.where(min_thresh_mask)
@@ -1453,7 +1629,7 @@ def make_netflow_maps(ds, fbs, image_dir):
         }
         
         my_cmap = create_diverging_cmap('black', cat_color_dict[type])
-        my_norm = colors.Normalize(vmin=-1e4, vmax=1e4)
+        my_norm = colors.Normalize(vmin=-1e5, vmax=1e5)
         plot_da(ds['netf_'+type], cmap=my_cmap, norm=my_norm, save_to_path=os.path.join(image_dir,'nf_'+type+'_map.png'))
 
         #ds['netf'] = sum([ds['netf_'+type] for type in fbs.Category.unique()])
@@ -1612,7 +1788,9 @@ def food_supply_metabolism_regression_w_residuals(fbs, config):
     # print('Best fit p value: ', best_fit_p_value)
     # print('Residual correlatipn r^2 vlaue: ', r_value**2)    
 
-# New Figure 4
+# New Figure 4 is made using the sesame python package plot_country function
+
+# Figure 5a
 def food_supply_metabolism_regression(fbs, metabolism_2015, config):
     #fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8), gridspec_kw={'width_ratios': [1.5, 1]})
     fig, ax1 = plt.subplots(figsize=(10, 8))
@@ -1732,7 +1910,7 @@ def food_supply_metabolism_regression(fbs, metabolism_2015, config):
     plt.tight_layout()
     plt.savefig(os.path.join(config['image_dir'],'metabolism_food_supply_gdp.png'))
 
-# Figure 5
+# Figure 5b
 def metabolism_time_series(global_metabolism, config):
     import scipy.stats as stats
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -1766,7 +1944,7 @@ def metabolism_time_series(global_metabolism, config):
     plt.savefig(os.path.join(config['image_dir'],'metabolism_time_series.png'))
 
 # All figures
-def create_figures(ds, fbs, metabolism_df, config, verbose=False):
+def create_figures(ds, fbs, metabolism_2015, metabolism_df, config, verbose=False):
     """Generate all visualizations for the food system analysis"""
     # Create output directory if it doesn't exist
     image_dir = config['image_dir']
@@ -1791,170 +1969,244 @@ def create_figures(ds, fbs, metabolism_df, config, verbose=False):
     
     if verbose:
         print("Creating Figure 4: Food supply metabolism regression...")
-    food_supply_metabolism_regression(fbs, config)
+    food_supply_metabolism_regression(fbs, metabolism_2015, config)
     
     if verbose:
         print("Creating Figure 5: Metabolism time series...")
-    metabolism_time_series(metabolism_df, image_dir)
+    metabolism_time_series(metabolism_df, config)
 
 ###########################################################################
 ###                            Data Analysis                            ###
 ###########################################################################
 
-def food_ds_to_ctry_table(ds):
-    pop = ds['population_count'].sel(time="2015-01-01").sum().item()
-    cons_vars = [v for v in ds.data_vars if v.startswith("fbs_cons_")]
-    feed_vars = [v for v in ds.data_vars if v.startswith("fbs_feed_")]
-    prod_vars = [v for v in ds.data_vars if v.startswith("fbs_prod_")]
-    avail_prod_vars = [v for v in ds.data_vars if v.startswith("avail_fbs_prod_")]
-    avail_mss_vars = [v for v in ds.data_vars if v.startswith("avail_mss_")]
-    mss_vars = [v for v in ds.data_vars if v.startswith("mss_")]
-    tmr_vars = [v for v in ds.data_vars if v.startswith("tmr_")]
-    all_vars = cons_vars + feed_vars + prod_vars + avail_mss_vars + avail_prod_vars + mss_vars + tmr_vars
-    df = ssm.grid_2_table(ds, variables = all_vars, verbose=True)
+# def food_ds_to_ctry_table(ds):
+#     pop = ds['population_count'].sel(time="2015-01-01").sum().item()
+#     cons_vars = [v for v in ds.data_vars if v.startswith("fbs_cons_")]
+#     feed_vars = [v for v in ds.data_vars if v.startswith("fbs_feed_")]
+#     prod_vars = [v for v in ds.data_vars if v.startswith("fbs_prod_")]
+#     avail_prod_vars = [v for v in ds.data_vars if v.startswith("avail_fbs_prod_")]
+#     avail_mss_vars = [v for v in ds.data_vars if v.startswith("avail_mss_")]
+#     mss_vars = [v for v in ds.data_vars if v.startswith("mss_")]
+#     tmr_vars = [v for v in ds.data_vars if v.startswith("tmr_")]
+#     all_vars = cons_vars + feed_vars + prod_vars + avail_mss_vars + avail_prod_vars + mss_vars + tmr_vars
+#     df = ssm.grid_2_table(ds, variables = all_vars, verbose=True)
 
-    # Rename columns so they have underscores in the right place for melt/pivot
-    df = df.rename(columns={col: f'_{col}' for col in df.columns if col.startswith('mss')})
-    df = df.rename(columns={col: f'_{col}' for col in df.columns if col.startswith('tmr')})
-    df = df.rename(columns={col: col.replace('avail_fbs_prod_', 'fbs_availProd_') for col in df.columns if col.startswith('avail_fbs_prod_')})
-    df = df.rename(columns={col: col.replace('avail_mss_', 'fbs_availMss_') for col in df.columns if col.startswith('avail_mss_')})
+#     # Rename columns so they have underscores in the right place for melt/pivot
+#     df = df.rename(columns={col: f'_{col}' for col in df.columns if col.startswith('mss')})
+#     df = df.rename(columns={col: f'_{col}' for col in df.columns if col.startswith('tmr')})
+#     df = df.rename(columns={col: col.replace('avail_fbs_prod_', 'fbs_availProd_') for col in df.columns if col.startswith('avail_fbs_prod_')})
+#     df = df.rename(columns={col: col.replace('avail_mss_', 'fbs_availMss_') for col in df.columns if col.startswith('avail_mss_')})
 
-    melted_df = pd.melt(
-        df,
-        id_vars=['ISO3'],
-        value_vars=[col for col in df.columns if col.startswith('fbs_') or col.startswith('_mss') or col.startswith('avail') or col.startswith('_tmr')],
-        var_name='variable',
-        value_name='value'
-    )
+#     melted_df = pd.melt(
+#         df,
+#         id_vars=['ISO3'],
+#         value_vars=[col for col in df.columns if col.startswith('fbs_') or col.startswith('_mss') or col.startswith('avail') or col.startswith('_tmr')],
+#         var_name='variable',
+#         value_name='value'
+#     )
 
-    # Split the variable column into type and item
-    melted_df[['type', 'item']] = melted_df['variable'].str.split('_', n=2, expand=True)[[1,2]]
+#     # Split the variable column into type and item
+#     melted_df[['type', 'item']] = melted_df['variable'].str.split('_', n=2, expand=True)[[1,2]]
 
-    # Pivot to get cons and prod columns
-    pivoted_df = melted_df.pivot(
-        index=['ISO3', 'item'],
-        columns='type',
-        values='value'
-    ).reset_index()
+#     # Pivot to get cons and prod columns
+#     pivoted_df = melted_df.pivot(
+#         index=['ISO3', 'item'],
+#         columns='type',
+#         values='value'
+#     ).reset_index()
 
-    # Rename columns
-    pivoted_df.columns.name = None
-    pivoted_df.rename(columns={'prod': 'Production', 'cons': 'Food Supply', 'feed': 'Feed', 'availProd': 'Available Production', 'availMss': 'Available Metabolic Self Sufficiency', 'mss': 'Metabolic Self Sufficiency', 'tmr': 'Total Metabolism'}, inplace=True)
-    # Reorder columns to put Production, Food Supply, and Metabolic Self Sufficiency last
-    pivoted_df = pivoted_df[['ISO3', 'item'] + [col for col in pivoted_df.columns if col not in ['ISO3', 'item', 'Production', 'Food Supply', 'Metabolic Self Sufficiency']] + ['Production', 'Food Supply', 'Metabolic Self Sufficiency']]
-    # Reorder columns in the specified order
-    pivoted_df = pivoted_df[['ISO3', 'item', 'Production', 'Available Production', 'Feed', 'Food Supply', 'Total Metabolism', 'Metabolic Self Sufficiency', 'Available Metabolic Self Sufficiency']]
+#     # Rename columns
+#     pivoted_df.columns.name = None
+#     pivoted_df.rename(columns={'prod': 'Production', 'cons': 'Food Supply', 'feed': 'Feed', 'availProd': 'Available Production', 'availMss': 'Available Metabolic Self Sufficiency', 'mss': 'Metabolic Self Sufficiency', 'tmr': 'Total Metabolism'}, inplace=True)
+#     # Reorder columns to put Production, Food Supply, and Metabolic Self Sufficiency last
+#     pivoted_df = pivoted_df[['ISO3', 'item'] + [col for col in pivoted_df.columns if col not in ['ISO3', 'item', 'Production', 'Food Supply', 'Metabolic Self Sufficiency']] + ['Production', 'Food Supply', 'Metabolic Self Sufficiency']]
+#     # Reorder columns in the specified order
+#     pivoted_df = pivoted_df[['ISO3', 'item', 'Production', 'Available Production', 'Feed', 'Food Supply', 'Total Metabolism', 'Metabolic Self Sufficiency', 'Available Metabolic Self Sufficiency']]
 
-    # Calculate per capita daily values by dividing each column by population and days in year
-    for col in ['Production', 'Available Production', 'Feed', 'Food Supply', 'Total Metabolism', 'Metabolic Self Sufficiency', 'Available Metabolic Self Sufficiency']:
-        pivoted_df[col] = pivoted_df[col] / pop / 365 * 10**6
+#     # Calculate per capita daily values by dividing each column by population and days in year
+#     for col in ['Production', 'Available Production', 'Feed', 'Food Supply', 'Total Metabolism', 'Metabolic Self Sufficiency', 'Available Metabolic Self Sufficiency']:
+#         pivoted_df[col] = pivoted_df[col] / pop / 365 * 10**6
 
-    return pivoted_df
+#     return pivoted_df
 
-def _create_df_from_ds(ds, prefixes = ['fbs_prod_', 'tmr_', 'avail_mss_', 'fbs_supply_']):
-    dfs = []
-    for prefix in prefixes:
-        df = ds[[dv for dv in ds.data_vars if dv[:len(prefix)] == prefix]].to_dataframe()
-        df.columns = [col.replace(prefix, '') for col in df.columns]
-        df = df.reset_index()
-        # Melt the dataframe to long format
-        df = pd.melt(df, 
-                id_vars=['lat', 'lon'], 
-                var_name='item',
-                value_name=prefix.replace('_', ''))
-        dfs.append(df)
+# def _create_df_from_ds(ds, prefixes = ['fbs_prod_', 'tmr_', 'fbs_supply_', 'avail_prod_']):
+#     dfs = []
+#     for prefix in prefixes:
+#         df = ds[[dv for dv in ds.data_vars if dv[:len(prefix)] == prefix]].to_dataframe()
+#         df.columns = [col.replace(prefix, '') for col in df.columns]
+#         df = df.reset_index()
+#         # Melt the dataframe to long format
+#         df = pd.melt(df, 
+#                 id_vars=['lat', 'lon'], 
+#                 var_name='item',
+#                 value_name=prefix.replace('_', ''))
+#         dfs.append(df)
 
-    df = pd.merge(dfs[0], dfs[1], on=['lat', 'lon', 'item'])
-    df = pd.merge(df, dfs[2], on=['lat', 'lon', 'item'])
-    df = pd.merge(df, dfs[3], on=['lat', 'lon', 'item'])
+#     df = pd.merge(dfs[0], dfs[1], on=['lat', 'lon', 'item'])
+#     df = pd.merge(df, dfs[2], on=['lat', 'lon', 'item'])
+#     df = pd.merge(df, dfs[3], on=['lat', 'lon', 'item'])
 
-    # Add population data and grid area
-    pop_df = ds['population_count'].sel(time="2015-01-01").to_dataframe().drop(columns=['time'])
-    df = df.merge(pop_df, on=['lat', 'lon'])
+#     # Add population data and grid area
+#     pop_df = ds['population_count'].sel(time="2015-01-01").to_dataframe().drop(columns=['time'])
+#     df = df.merge(pop_df, on=['lat', 'lon'])
 
-    return df
+#     return df
 
-def _add_type_column(df, config):
-    fbs_labels = pd.read_csv(config['fbs_labels'])
-    item_to_class = dict(zip(fbs_labels['Item'], fbs_labels['Type']))
-    # Update the mapping to use the new class names
-    item_to_class = {item: class_name for item, class_name in zip(fbs_labels['Item'], fbs_labels['Type'])}
-    # Create a reverse mapping to update values
-    value_mapping = {
-        'Fruits, Vegetables, Nuts': ['Fruits', 'Vegetables', 'Nuts'],
-        'Spices, Sweeteners, and Beverages': ['AlcoholicBeverages', 'StimulantsAndSpices'],
-        'Sugar': ['SugarCrop'],
-        'Pulses, Roots, Tubers': ['Pulses', 'Roots'],
-        'Animal Products': ['Meat', 'NonMeatAnimalProduct', 'Seafood'],
-        'Oilcrops': ['Oil']
-    }
-    # Update values in item_to_class based on the mapping
-    for new_value, old_values in value_mapping.items():
-        for old_value in old_values:
-            for item, class_name in item_to_class.items():
-                if class_name == old_value:
-                    item_to_class[item] = new_value
+# def _add_type_column(df, config):
+#     fbs_labels = pd.read_csv(config['fbs_labels'])
+#     item_to_class = dict(zip(fbs_labels['Item'], fbs_labels['Type']))
+#     # Update the mapping to use the new class names
+#     item_to_class = {item: class_name for item, class_name in zip(fbs_labels['Item'], fbs_labels['Type'])}
+#     # Create a reverse mapping to update values
+#     value_mapping = {
+#         'Fruits, Vegetables, Nuts': ['Fruits', 'Vegetables', 'Nuts'],
+#         'Spices, Sweeteners, and Beverages': ['AlcoholicBeverages', 'StimulantsAndSpices'],
+#         'Sugar': ['SugarCrop'],
+#         'Pulses, Roots, Tubers': ['Pulses', 'Roots'],
+#         'Animal Products': ['Meat', 'NonMeatAnimalProduct', 'Seafood'],
+#         'Oilcrops': ['Oil']
+#     }
+#     # Update values in item_to_class based on the mapping
+#     for new_value, old_values in value_mapping.items():
+#         for old_value in old_values:
+#             for item, class_name in item_to_class.items():
+#                 if class_name == old_value:
+#                     item_to_class[item] = new_value
 
-    df['type'] = df['item'].map(item_to_class)
-    return df
+#     df['type'] = df['item'].map(item_to_class)
+#     return df
 
-def _add_region_column(df, config):
-    with open(config['fao_regions.json'], 'r') as f:
-        region_map = json.load(f)
+# def add_ctry_column(df):
+#         # Now add country information
+#     ctry_frac_ds = xr.open_dataset(os.path.join(ssm.__path__[0], 'data', 'country_fraction.1deg.2000-2023.a.nc'))
+#     ctry_frac_ds = ctry_frac_ds.sel(time='2015').squeeze('time')
+#     ctrys = list(ctry_frac_ds.data_vars)
+#     ctry_2_index = {ctry: i for i, ctry in enumerate(ctrys)}
+#     index_2_ctry = {i: ctry for i, ctry in enumerate(ctrys)}
 
-    # Create mapping dictionaries
-    iso3_to_region = {}
-    for region, iso3_list in region_map.items():
-        for iso3 in iso3_list:
-            iso3_to_region[iso3] = region
-    df['region'] = df['ctry'].map(iso3_to_region)
-    return df
+#     # Round each value in ctry_frac_ds to nearest integer and convert to boolean (0 or 1)
+#     for ctry in ctrys:
+#         ctry_frac_ds[ctry] = (ctry_frac_ds[ctry].round() > 0).astype('bool')
 
-def _add_ctry_column(df, config):
-        # Now add country information
+#     # Create a new data array to store country names
+#     country_names = xr.DataArray(np.zeros((180, 360), dtype=object), dims=['lat', 'lon'])
+
+#     # Vectorized approach to find country names for each coordinate
+#     fracs = {ctry: ctry_frac_ds[ctry].values for ctry in ctrys}
+#     nonzero_mask = np.stack([fracs[ctry] for ctry in ctrys], axis=0)
+#     first_nonzero_idx = np.argmax(nonzero_mask, axis=0)
+#     country_names.values = np.where(np.any(nonzero_mask, axis=0),
+#                                 np.array(ctrys)[first_nonzero_idx],
+#                                 None)
+#     # Get country indices
+#     country_values = country_names.values
+#     country_indices = np.array([ctry_2_index.get(val, np.nan) if val is not None else np.nan for val in country_values.flatten()]).reshape(country_values.shape)
+#     ctry_ds = xr.Dataset({'ctry': (('lat', 'lon'), country_indices)}, coords={'lat': np.arange(-89.5, 90, 1), 'lon': np.arange(-179.5, 180, 1)})
+#     #ctry_ds = ctry_ds.drop_indexes(['lat']).reindex(lat=ctry_ds.lat[::-1])
+#     ctry_ds['ctry'].values = ctry_ds['ctry'].values[::-1]
+
+#     # Merge with df
+#     ctry_df = ctry_ds.to_dataframe()
+#     ctry_df['ctry'] = ctry_df['ctry'].map(index_2_ctry)
+#     ctry_df = ctry_df.reset_index()
+#     df = ctry_df.merge(df, on=['lat', 'lon'])
+#     return df
+
+# def ds_to_csv(ds, config, csv_name='food_grid_with_ctry_and_pop.csv'):
+#     # config = json.load(open('config.json'))
+#     # ds = xr.open_dataset('output/food_ds.nc')
+#     df = _create_df_from_ds(ds)
+#     df = _add_type_column(df, config)
+#     df = _add_ctry_column(df, config)
+#     df = _add_region_column(df, config)
+
+#     df.to_csv(os.path.join(config['output_dir'], csv_name), index=False)
+
+def add_ctry_dv(ds_with_coords):
+    # Load country fraction dataset
     ctry_frac_ds = xr.open_dataset(os.path.join(ssm.__path__[0], 'data', 'country_fraction.1deg.2000-2023.a.nc'))
     ctry_frac_ds = ctry_frac_ds.sel(time='2015').squeeze('time')
+    # Reindex latitude to ascending order if needed
+    if np.any(np.diff(ctry_frac_ds.lat.values) < 0):
+        ctry_frac_ds = ctry_frac_ds.reindex(lat=ctry_frac_ds.lat[::-1])
     ctrys = list(ctry_frac_ds.data_vars)
-    ctry_2_index = {ctry: i for i, ctry in enumerate(ctrys)}
-    index_2_ctry = {i: ctry for i, ctry in enumerate(ctrys)}
+    index_2_ctry = {str(i): ctry for i, ctry in enumerate(ctrys)}
 
-    # Round each value in ctry_frac_ds to nearest integer and convert to boolean (0 or 1)
+    # Round and binarize country fractions
     for ctry in ctrys:
         ctry_frac_ds[ctry] = (ctry_frac_ds[ctry].round() > 0).astype('bool')
 
-    # Create a new data array to store country names
-    country_names = xr.DataArray(np.zeros((180, 360), dtype=object), dims=['lat', 'lon'])
-
-    # Vectorized approach to find country names for each coordinate
-    fracs = {ctry: ctry_frac_ds[ctry].values for ctry in ctrys}
-    nonzero_mask = np.stack([fracs[ctry] for ctry in ctrys], axis=0)
+    # Build mask and find first nonzero country index at each (lat, lon)
+    fracs = [ctry_frac_ds[ctry].values for ctry in ctrys]
+    nonzero_mask = np.stack(fracs, axis=0)
+    any_nonzero = np.any(nonzero_mask, axis=0)
     first_nonzero_idx = np.argmax(nonzero_mask, axis=0)
-    country_names.values = np.where(np.any(nonzero_mask, axis=0),
-                                np.array(ctrys)[first_nonzero_idx],
-                                None)
-    # Get country indices
-    country_values = country_names.values
-    country_indices = np.array([ctry_2_index.get(val, np.nan) if val is not None else np.nan for val in country_values.flatten()]).reshape(country_values.shape)
-    ctry_ds = xr.Dataset({'ctry': (('lat', 'lon'), country_indices)}, coords={'lat': np.arange(-89.5, 90, 1), 'lon': np.arange(-179.5, 180, 1)})
-    #ctry_ds = ctry_ds.drop_indexes(['lat']).reindex(lat=ctry_ds.lat[::-1])
-    ctry_ds['ctry'].values = ctry_ds['ctry'].values[::-1]
+    # Assign country index or np.nan if no country present
+    ctry_index_arr = np.where(any_nonzero, first_nonzero_idx, np.nan)
 
-    # Merge with df
-    ctry_df = ctry_ds.to_dataframe()
-    ctry_df['ctry'] = ctry_df['ctry'].map(index_2_ctry)
-    ctry_df = ctry_df.reset_index()
-    df = ctry_df.merge(df, on=['lat', 'lon'])
-    return df
+    # Add as a data variable to ds_with_coords
+    ds_with_coords = ds_with_coords.assign(
+        ctry=(('lat', 'lon'), ctry_index_arr)
+    )
+    ds_with_coords['ctry'].attrs = index_2_ctry
+    return ds_with_coords
 
-def ds_to_csv(ds, config, csv_name='food_grid_with_ctry_and_pop.csv'):
-    # config = json.load(open('config.json'))
-    # ds = xr.open_dataset('output/food_ds.nc')
-    df = _create_df_from_ds(ds)
-    df = _add_type_column(df, config)
-    df = _add_ctry_column(df, config)
-    df = _add_region_column(df, config)
+def ds_to_food_cube(ds, config, vars = ['tmr', 'avail_prod', 'fbs_prod', 'fbs_supply'], out_path='food_cube.nc'):
+    '''
+    Convert the ds to a cube with dimensions lat, lon, food
+    '''
+    # Create a list of food items from the existing dataset
+    food_items = []
+    for var_name in ds.data_vars:
+        if var_name.startswith('tmr_'):
+            food_items.append(var_name[4:])  # Remove 'tmr_' prefix
 
-    df.to_csv(os.path.join(config['output_dir'], csv_name), index=False)
+    # Create the new dataset with dimensions lat, lon, food
+    new_ds = xr.Dataset(
+        coords={
+            'lat': ds.lat,
+            'lon': ds.lon,
+            'food': food_items
+        }
+    )
+
+    for var in vars:
+        data = []
+        for food in food_items:
+            data.append(ds[f'{var}_{food}'].values)
+        
+        data = np.stack(data, axis=-1)  # Stack along new food dimension
+        data = np.maximum(data, 0)  # Round negative values up to 0 (this is the only way to get rid of the negative values from floating point error)
+        data = data * 1e6 / 365 # Convert to Cal/day
+        # Create DataArray with proper attributes and metadata
+        new_ds[var] = xr.DataArray(
+            data=data,
+            dims=['lat', 'lon', 'food'],
+            coords={
+                'lat': ds.lat, 
+                'lon': ds.lon, 
+                'food': food_items
+            },
+            attrs={
+                'long_name': f'{var} by food type',
+                'units': 'kcal/day/grid cell' if var in ['tmr', 'avail_prod', 'fbs_prod', 'fbs_supply'] else 'dimensionless',
+                'description': f'{var} values by food type across spatial dimensions'
+            }
+        )
+
+    new_ds = new_ds.assign({
+        # 'mss': xr.where(new_ds['tmr'] < new_ds['avail_prod'], new_ds['tmr'], new_ds['avail_prod']),
+        'population_count': ds['population_count'].sel(time='2015').squeeze()
+    })
+
+    # Round all values to nearest integer
+    for var_name in new_ds.data_vars:
+        new_ds[var_name] = new_ds[var_name].fillna(0).round()
+
+    new_ds = add_ctry_dv(new_ds)
+    new_ds.to_netcdf(os.path.join(config['output_dir'], out_path))
+
+    return new_ds
 
 ###########################################################################
 ###                            Main Function                            ###
@@ -2009,17 +2261,21 @@ def main(config_path, verbose=False, generate_data=False):
         if verbose:
             print(f"\nSaving food_ds.nc to {output_dir}...")
         ds.to_netcdf(os.path.join(output_dir, 'food_ds.nc'))
-        ctry_table = food_ds_to_ctry_table(ds)
-        ctry_table.to_csv(os.path.join(output_dir, 'food_ds_ctry_table.csv'), index=False)
-    
+
     fbs = pd.read_csv(os.path.join(output_dir, 'fbs.csv'))
     ds  = xr.load_dataset(os.path.join(output_dir, 'food_ds.nc'))
     metabolism_df = pd.read_csv(os.path.join(output_dir, 'metabolism_time_series.csv'))
+    metabolism_2015 = pd.read_csv(os.path.join(output_dir, 'metabolism_2015.csv'))
+    
+    # Create final data table
+    # if verbose:
+        # print("creating food cube")
+    # ds_to_food_cube(ds, config, out_path='food_cube.nc')
 
     # Create visualizations
     if verbose:
         print("\nCreating visualizations...")
-    create_figures(ds, fbs, metabolism_df, config, verbose)
+    create_figures(ds, fbs, metabolism_2015, metabolism_df, config, verbose)
     
     if verbose:
         print("Processing complete!")
