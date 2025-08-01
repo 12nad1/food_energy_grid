@@ -19,21 +19,18 @@ source food_energy_grid_env/bin/activate  # On macOS/Linux
 
 ### 2. Install Dependencies
 
-Install the required packages:
+Install SESAME-IESD and its dependencies by following the instructions at: https://github.com/A2Faisal/SESAME. 
 
 ```bash
-pip install numpy==2.0.1
-pip install pandas==2.2.2
-pip install xarray==2024.6.0
-pip install cartopy==0.23.0
-pip install seaborn==0.13.2
+# create a new conda environment
+conda create -n sesame_env
+# activate the environment
+conda activate sesame_env
+# install pip
+conda install pip
+# install SESAME from testPyPI
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple sesame-iesd==0.1.2
 ```
-
-### 3. Install SESAME
-
-You must also install SESAME, which can be found at: https://github.com/A2Faisal/SESAME
-
-Follow the installation instructions in the SESAME repository.
 
 ## Usage
 
