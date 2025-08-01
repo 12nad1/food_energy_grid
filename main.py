@@ -189,29 +189,6 @@ def adjust_production_based_on_trade(fbs, verbose=False):
         fbs.loc[idx, 'Domestic supply quantity_adj'] = U.value
         fbs.loc[idx, 'Import Quantity_adj'] = I.value
 
-    # I didn't round it initially but maybe I should.
-    # adj_cols = [col for col in fbs.columns if col[-4:] == '_adj']
-    # fbs[adj_cols] = fbs[adj_cols].round().astype(int)
-    # assert (fbs[adj_cols] >= 0).all().all(), "Found negative values in adjusted columns"
-
-    # This takes 5+ minutes to run
-    # for food in fbs['Item'].unique():
-    #     try:
-    #         print(abs(fbs[fbs['Item'] == food]['Production_adj'].sum() - fbs[fbs['Item'] == food]['Domestic supply quantity_adj'].sum()))
-    #         print(abs(fbs[fbs['Item'] == food]['Export Quantity_adj'].sum() - fbs[fbs['Item'] == food]['Import Quantity_adj'].sum()))
-    #         assert(abs(fbs[fbs['Item'] == food]['Production_adj'].sum() - fbs[fbs['Item'] == food]['Domestic supply quantity_adj'].sum()) < 10)
-    #         assert(abs(fbs[fbs['Item'] == food]['Export Quantity_adj'].sum() - fbs[fbs['Item'] == food]['Import Quantity_adj'].sum()) < 10)
-    #         for area in fbs['Area'].unique():
-    #             P = fbs[fbs['Area'] == area][fbs['Item'] == food]['Production_adj'].sum()
-    #             U = fbs[fbs['Area'] == area][fbs['Item'] == food]['Domestic supply quantity_adj'].sum()
-    #             E = fbs[fbs['Area'] == area][fbs['Item'] == food]['Export Quantity_adj'].sum()
-    #             I = fbs[fbs['Area'] == area][fbs['Item'] == food]['Import Quantity_adj'].sum()
-    #             print(abs(P + I - E - U))
-    #             assert(abs(P + I - E - U) < 2)
-    #     except AssertionError:
-    #         print(f'{food} failed')
-    #         break
-
     print("✅ Optimization completed for all items.")
     fbs.to_csv('balanced_fbs.csv')
 
@@ -1212,26 +1189,6 @@ def downscale_metabolism(ds, metabolism_2015, fbscatdf, verbose=False):
     metabolism_2015['bmr_MCal'] = metabolism_2015['BMR'] * metabolism_2015['total_population'] * 365 / 1e6
     metabolism_2015['tmr_MCal'] = metabolism_2015['TMR'] * metabolism_2015['total_population'] * 365 / 1e6
 
-    # TODO: delete this, deprecated
-    # ds['bmr'] = xr.zeros_like(ds['grid_area'])
-    # ds['bmr'] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='bmr_MCal', surrogate_file=ds.sel(time='2015'), tabular_file=metabolism_2015, verbose=verbose)['bmr_MCal']
-    # ds['tmr'] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='tmr_MCal', surrogate_file=ds.sel(time='2015'), tabular_file=metabolism_2015, verbose=verbose)['tmr_MCal']
-    #  ds['bmr'].attrs = {'units':'Calories per day',
-    #                 'long_name':'Total Basal Metabolic Rate'}
-    # ds['tmr'].attrs = {'units':'Calories per day',
-    #                 'long_name':'Total Metabolic Rate'}
-    # ds['met_Cal_p_grid_cell'] = ds['tmr']
-    # ds['met_Cal_p_grid_cell'].attrs = {'units':'Calories per day',
-    #             'long_name':'Metabolic Rate per Grid Cell'}
-    # 
-    # ds['BMR_density'] = ds['bmr_MCal'] / ds['grid_area']
-    # ds['TMR_density'] = ds['tmr_MCal'] / ds['grid_area']
-   
-    # ds['BMR_density'].attrs = {'units':'Calories per day per sqm',
-    #                 'long_name':'Total Basal Metabolic Density per Grid Cell'}
-    # ds['TMR_density'].attrs = {'units':'Calories per day per sqm',
-    #                 'long_name':'Total Metabolic Density per Grid Cell'}
-    
     foods = [dv[9:] for dv in ds.data_vars if dv[:9] == 'fbs_prod_']
 
     df = pd.merge(metabolism_2015, fbscatdf, on='ISO3', how='inner')
@@ -1898,15 +1855,7 @@ def food_supply_metabolism_regression(fbs, metabolism_2015, config):
     ax1.set_xticks(np.arange(2000, xmax, 250))
     ax1.set_yticks(np.arange(2000, ymax, 250))
 
-    plt.legend(loc='upper left')#, bbox_to_anchor=(0.5, -0.1), ncol=2)
-    # plt.subplots_adjust( #Instead of tight layout, adjust manually 
-    # left=0,    # Left margin (0-1)
-    # right=1,   # Right margin (0-1)
-    # bottom=0,  # Bottom margin (0-1)
-    # top=1,     # Top margin (0-1)
-    # wspace=0,  # Width space between subplots (0-1)
-    # hspace=0   # Height space between subplots (0-1)
-    # )
+    plt.legend(loc='upper left')
     plt.tight_layout()
     plt.savefig(os.path.join(config['image_dir'],'metabolism_food_supply_gdp.png'))
 
@@ -1975,152 +1924,6 @@ def create_figures(ds, fbs, metabolism_2015, metabolism_df, config, verbose=Fals
         print("Creating Figure 5: Metabolism time series...")
     metabolism_time_series(metabolism_df, config)
 
-###########################################################################
-###                            Data Analysis                            ###
-###########################################################################
-
-# def food_ds_to_ctry_table(ds):
-#     pop = ds['population_count'].sel(time="2015-01-01").sum().item()
-#     cons_vars = [v for v in ds.data_vars if v.startswith("fbs_cons_")]
-#     feed_vars = [v for v in ds.data_vars if v.startswith("fbs_feed_")]
-#     prod_vars = [v for v in ds.data_vars if v.startswith("fbs_prod_")]
-#     avail_prod_vars = [v for v in ds.data_vars if v.startswith("avail_fbs_prod_")]
-#     avail_mss_vars = [v for v in ds.data_vars if v.startswith("avail_mss_")]
-#     mss_vars = [v for v in ds.data_vars if v.startswith("mss_")]
-#     tmr_vars = [v for v in ds.data_vars if v.startswith("tmr_")]
-#     all_vars = cons_vars + feed_vars + prod_vars + avail_mss_vars + avail_prod_vars + mss_vars + tmr_vars
-#     df = ssm.grid_2_table(ds, variables = all_vars, verbose=True)
-
-#     # Rename columns so they have underscores in the right place for melt/pivot
-#     df = df.rename(columns={col: f'_{col}' for col in df.columns if col.startswith('mss')})
-#     df = df.rename(columns={col: f'_{col}' for col in df.columns if col.startswith('tmr')})
-#     df = df.rename(columns={col: col.replace('avail_fbs_prod_', 'fbs_availProd_') for col in df.columns if col.startswith('avail_fbs_prod_')})
-#     df = df.rename(columns={col: col.replace('avail_mss_', 'fbs_availMss_') for col in df.columns if col.startswith('avail_mss_')})
-
-#     melted_df = pd.melt(
-#         df,
-#         id_vars=['ISO3'],
-#         value_vars=[col for col in df.columns if col.startswith('fbs_') or col.startswith('_mss') or col.startswith('avail') or col.startswith('_tmr')],
-#         var_name='variable',
-#         value_name='value'
-#     )
-
-#     # Split the variable column into type and item
-#     melted_df[['type', 'item']] = melted_df['variable'].str.split('_', n=2, expand=True)[[1,2]]
-
-#     # Pivot to get cons and prod columns
-#     pivoted_df = melted_df.pivot(
-#         index=['ISO3', 'item'],
-#         columns='type',
-#         values='value'
-#     ).reset_index()
-
-#     # Rename columns
-#     pivoted_df.columns.name = None
-#     pivoted_df.rename(columns={'prod': 'Production', 'cons': 'Food Supply', 'feed': 'Feed', 'availProd': 'Available Production', 'availMss': 'Available Metabolic Self Sufficiency', 'mss': 'Metabolic Self Sufficiency', 'tmr': 'Total Metabolism'}, inplace=True)
-#     # Reorder columns to put Production, Food Supply, and Metabolic Self Sufficiency last
-#     pivoted_df = pivoted_df[['ISO3', 'item'] + [col for col in pivoted_df.columns if col not in ['ISO3', 'item', 'Production', 'Food Supply', 'Metabolic Self Sufficiency']] + ['Production', 'Food Supply', 'Metabolic Self Sufficiency']]
-#     # Reorder columns in the specified order
-#     pivoted_df = pivoted_df[['ISO3', 'item', 'Production', 'Available Production', 'Feed', 'Food Supply', 'Total Metabolism', 'Metabolic Self Sufficiency', 'Available Metabolic Self Sufficiency']]
-
-#     # Calculate per capita daily values by dividing each column by population and days in year
-#     for col in ['Production', 'Available Production', 'Feed', 'Food Supply', 'Total Metabolism', 'Metabolic Self Sufficiency', 'Available Metabolic Self Sufficiency']:
-#         pivoted_df[col] = pivoted_df[col] / pop / 365 * 10**6
-
-#     return pivoted_df
-
-# def _create_df_from_ds(ds, prefixes = ['fbs_prod_', 'tmr_', 'fbs_supply_', 'avail_prod_']):
-#     dfs = []
-#     for prefix in prefixes:
-#         df = ds[[dv for dv in ds.data_vars if dv[:len(prefix)] == prefix]].to_dataframe()
-#         df.columns = [col.replace(prefix, '') for col in df.columns]
-#         df = df.reset_index()
-#         # Melt the dataframe to long format
-#         df = pd.melt(df, 
-#                 id_vars=['lat', 'lon'], 
-#                 var_name='item',
-#                 value_name=prefix.replace('_', ''))
-#         dfs.append(df)
-
-#     df = pd.merge(dfs[0], dfs[1], on=['lat', 'lon', 'item'])
-#     df = pd.merge(df, dfs[2], on=['lat', 'lon', 'item'])
-#     df = pd.merge(df, dfs[3], on=['lat', 'lon', 'item'])
-
-#     # Add population data and grid area
-#     pop_df = ds['population_count'].sel(time="2015-01-01").to_dataframe().drop(columns=['time'])
-#     df = df.merge(pop_df, on=['lat', 'lon'])
-
-#     return df
-
-# def _add_type_column(df, config):
-#     fbs_labels = pd.read_csv(config['fbs_labels'])
-#     item_to_class = dict(zip(fbs_labels['Item'], fbs_labels['Type']))
-#     # Update the mapping to use the new class names
-#     item_to_class = {item: class_name for item, class_name in zip(fbs_labels['Item'], fbs_labels['Type'])}
-#     # Create a reverse mapping to update values
-#     value_mapping = {
-#         'Fruits, Vegetables, Nuts': ['Fruits', 'Vegetables', 'Nuts'],
-#         'Spices, Sweeteners, and Beverages': ['AlcoholicBeverages', 'StimulantsAndSpices'],
-#         'Sugar': ['SugarCrop'],
-#         'Pulses, Roots, Tubers': ['Pulses', 'Roots'],
-#         'Animal Products': ['Meat', 'NonMeatAnimalProduct', 'Seafood'],
-#         'Oilcrops': ['Oil']
-#     }
-#     # Update values in item_to_class based on the mapping
-#     for new_value, old_values in value_mapping.items():
-#         for old_value in old_values:
-#             for item, class_name in item_to_class.items():
-#                 if class_name == old_value:
-#                     item_to_class[item] = new_value
-
-#     df['type'] = df['item'].map(item_to_class)
-#     return df
-
-# def add_ctry_column(df):
-#         # Now add country information
-#     ctry_frac_ds = xr.open_dataset(os.path.join(ssm.__path__[0], 'data', 'country_fraction.1deg.2000-2023.a.nc'))
-#     ctry_frac_ds = ctry_frac_ds.sel(time='2015').squeeze('time')
-#     ctrys = list(ctry_frac_ds.data_vars)
-#     ctry_2_index = {ctry: i for i, ctry in enumerate(ctrys)}
-#     index_2_ctry = {i: ctry for i, ctry in enumerate(ctrys)}
-
-#     # Round each value in ctry_frac_ds to nearest integer and convert to boolean (0 or 1)
-#     for ctry in ctrys:
-#         ctry_frac_ds[ctry] = (ctry_frac_ds[ctry].round() > 0).astype('bool')
-
-#     # Create a new data array to store country names
-#     country_names = xr.DataArray(np.zeros((180, 360), dtype=object), dims=['lat', 'lon'])
-
-#     # Vectorized approach to find country names for each coordinate
-#     fracs = {ctry: ctry_frac_ds[ctry].values for ctry in ctrys}
-#     nonzero_mask = np.stack([fracs[ctry] for ctry in ctrys], axis=0)
-#     first_nonzero_idx = np.argmax(nonzero_mask, axis=0)
-#     country_names.values = np.where(np.any(nonzero_mask, axis=0),
-#                                 np.array(ctrys)[first_nonzero_idx],
-#                                 None)
-#     # Get country indices
-#     country_values = country_names.values
-#     country_indices = np.array([ctry_2_index.get(val, np.nan) if val is not None else np.nan for val in country_values.flatten()]).reshape(country_values.shape)
-#     ctry_ds = xr.Dataset({'ctry': (('lat', 'lon'), country_indices)}, coords={'lat': np.arange(-89.5, 90, 1), 'lon': np.arange(-179.5, 180, 1)})
-#     #ctry_ds = ctry_ds.drop_indexes(['lat']).reindex(lat=ctry_ds.lat[::-1])
-#     ctry_ds['ctry'].values = ctry_ds['ctry'].values[::-1]
-
-#     # Merge with df
-#     ctry_df = ctry_ds.to_dataframe()
-#     ctry_df['ctry'] = ctry_df['ctry'].map(index_2_ctry)
-#     ctry_df = ctry_df.reset_index()
-#     df = ctry_df.merge(df, on=['lat', 'lon'])
-#     return df
-
-# def ds_to_csv(ds, config, csv_name='food_grid_with_ctry_and_pop.csv'):
-#     # config = json.load(open('config.json'))
-#     # ds = xr.open_dataset('output/food_ds.nc')
-#     df = _create_df_from_ds(ds)
-#     df = _add_type_column(df, config)
-#     df = _add_ctry_column(df, config)
-#     df = _add_region_column(df, config)
-
-#     df.to_csv(os.path.join(config['output_dir'], csv_name), index=False)
 
 def add_ctry_dv(ds_with_coords):
     # Load country fraction dataset
@@ -2283,11 +2086,10 @@ def main(config_path, verbose=False, generate_data=False):
 if __name__ == "__main__":
     # To run this script: python main.py --config path/to/your/config.json
     # If no config path is provided, it will default to 'config.json' in the current directory
-    # import argparse
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--config', default='config.json', help='Path to config file')
-    # parser.add_argument('--verbose', action='store_true', help='Run in verbose mode with detailed output')
-    # parser.add_argument('--generate_data', action='store_true', help='Generate the output data (without this argumnet, just visualizes existing data)')
-    # args = parser.parse_args()
-    #main(args.config, args.verbose, args.generate_data)
-    main(config_path='config.json', verbose=True, generate_data=True)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', default='config.json', help='Path to config file')
+    parser.add_argument('--verbose', action='store_true', help='Run in verbose mode with detailed output')
+    parser.add_argument('--generate_data', action='store_true', help='Generate the output data (without this argumnet, just visualizes existing data)')
+    args = parser.parse_args()
+    main(args.config, args.verbose, args.generate_data)
