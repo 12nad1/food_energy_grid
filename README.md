@@ -27,7 +27,7 @@ All data used in this resesarch was open source and openly available. The input 
 
 If users want to reproduce the work from the paper, they can download the input data, contained in data.zip. If users simply want the output data from the paper, it is in the directory output.zip. It is recomended that these files be unzipped within their own directories data and output, respectively, for easy file management and references from the config.json file.
 
-The original citations for the data in data.zip can be found in the paper. Please cite the original source if using this data directly.
+The original citations for the data in data.zip can be found in the paper. Please cite the original source if using this data directly. Note that the file fao_country_to_region.json is already in the data directory in this git repository, however it is not available in the published zenodo directory. 
 
 ## Usage
 
@@ -53,6 +53,8 @@ python main.py --generate_data
 # Combine multiple options
 python main.py --config my_config.json --verbose --generate_data
 ```
+
+Note that running the full data generation takes several hours
 
 ### Command Line Arguments
 
