@@ -15,6 +15,8 @@ conda activate my_env
 conda install pip
 # install SESAME from testPyPI
 pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple sesame-iesd==0.1.2
+# install cvxpy
+pip install cvxpy==1.7.1
 ```
 
 ## Usage
@@ -50,10 +52,6 @@ python main.py --config my_config.json --verbose --generate_data
 
 ## Dependencies
 
-- numpy                     2.0.1
-- pandas                    2.2.2
-- xarray                    2024.6.0
-- cartopy                   0.23.0
-- seaborn                   0.13.2
-- SESAME (from https://github.com/A2Faisal/SESAME)
+- cvxpy                     1.7.1
+- sesame_iesd 				0.1.2	(from https://github.com/A2Faisal/SESAME)
 
