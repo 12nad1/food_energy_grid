@@ -1,5 +1,7 @@
 # food_energy_grid
 
+This is the code repository for the paper Energetic Closure of the Spatially Resolved Global Food System, which is currently under review at Nature Food, with preprint available here: https://arxiv.org/abs/2412.10421.
+
 ## Setup Instructions
 
 ### 1. Create a Python Environment and Install Dependencies
@@ -23,8 +25,9 @@ pip install cvxpy==1.7.1
 
 All data used in this resesarch was open source and openly available. The input data and the output data are available at the Zenodo directory at URL https://zenodo.org/records/16708221 with DOI 10.5281/zenodo.16708221.
 
-If users want to reproduce the work from the paper, they can download the input data, contained in data.zip. If users simply want the output data from the paper, it is in the direcotry output.zip. It is recomended that these files be unzipped within their own directories data and output, respectively, for easy file management and references from the config.json file.
+If users want to reproduce the work from the paper, they can download the input data, contained in data.zip. If users simply want the output data from the paper, it is in the directory output.zip. It is recomended that these files be unzipped within their own directories data and output, respectively, for easy file management and references from the config.json file.
 
+The original citations for the data in data.zip can be found in the paper. Please cite the original source if using this data directly.
 
 ## Usage
 
