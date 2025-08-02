@@ -18,6 +18,7 @@
 	"gdp_gapminder": "data/gdp_per_capita_gapminder.csv",
 	"population.nc": "data/Bh.Population.2000-2020.a.nc",
 	"fish_catch.nc": "data/B.fish_catch.nc",
+	"fao_ctry_to_regions.json": "data/fao_country_to_region.json",
 	"crop_prod_dir": "data/crop_prod",
 	"livestock_dir": "data/livestock_counts",
 	"data_dir": "data",
