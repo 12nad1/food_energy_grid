@@ -1138,7 +1138,7 @@ def downscale_animal_counts(ds, livestock_df, fao_country_to_region, lsu_df):
     new_lsu_df = pd.DataFrame(list(fao_country_to_region.items()), columns=['ISO3', 'Region']).merge(lsu_df, on='Region')  
     for animal_key, animal_name in abbrev_to_livestock.items():
         #ds[animal_key + 'LSU'] = ssm.table_2_grid(animal_key, 'LSU', ds, tabular_file=livestock_df[livestock_df['Item'] == animal_name])['LSU']
-        ds[animal_key + 'LSU'] = ssm.table_2_grid(surrogate_variable=animal_key, tabular_column='LSU', surrogate_file=ds, tabular_file=livestock_df[livestock_df['Item'] == animal_name])['LSU'] # New method
+        ds[animal_key + 'LSU'] = ssm.table_2_grid(surrogate_variable=animal_key, tabular_column='LSU', surrogate_data=ds, tabular_file=livestock_df[livestock_df['Item'] == animal_name])['LSU'] # New method
 
     ds['total_livestockLSU'] = sum([ds[AnLSU].fillna(0) for AnLSU in ['BfLSU','ChLSU','CtLSU','GtLSU','PgLSU','ShLSU']]) #'DkLSU',
     ds['DairyProducersLSU'] = sum([ds[AnLSU].fillna(0) for AnLSU in ['BfLSU','CtLSU','GtLSU','ShLSU']])
@@ -1157,13 +1157,13 @@ def downscale_fao(ds, config, fbs, fbscatdf):
     for i, food in enumerate(list(fbs.Item.unique())):
         print(f'{100*i/len(list(fbs.Item.unique()))}% done, {food}')
         if item_to_surrogate[food] != 'NonSpatial':
-            ds['fbs_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='ProdMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['ProdMCal ' + food]
-            ds['avail_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='AvailableProductionMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['AvailableProductionMCal ' + food]
+            ds['fbs_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='ProdMCal ' + food, surrogate_data=ds, tabular_file=fbscatdf)['ProdMCal ' + food]
+            ds['avail_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='AvailableProductionMCal ' + food, surrogate_data=ds, tabular_file=fbscatdf)['AvailableProductionMCal ' + food]
             # ds['fbs_prodT_' + food] = ssm.table_2_grid(item_to_surrogate[food], 'Production ' + food, ds, tabular_file=fbscatdf)['Production ' + food]
         # ds['fbs_supT_' + food] = ssm.table_2_grid('pop2015', 'FoodSupplyT ' + food, ds, tabular_file=fbscatdf)['FoodSupplyT ' + food]
-        ds['fbs_cons_' + food] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='ConsMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['ConsMCal ' + food]
-        ds['fbs_supply_' + food] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='FoodSupplyMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['FoodSupplyMCal ' + food]
-        ds['fbs_feed_' + food] = ssm.table_2_grid(surrogate_variable='total_livestockLSU', tabular_column='FeedMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['FeedMCal ' + food]
+        ds['fbs_cons_' + food] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='ConsMCal ' + food, surrogate_data=ds, tabular_file=fbscatdf)['ConsMCal ' + food]
+        ds['fbs_supply_' + food] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='FoodSupplyMCal ' + food, surrogate_data=ds, tabular_file=fbscatdf)['FoodSupplyMCal ' + food]
+        ds['fbs_feed_' + food] = ssm.table_2_grid(surrogate_variable='total_livestockLSU', tabular_column='FeedMCal ' + food, surrogate_data=ds, tabular_file=fbscatdf)['FeedMCal ' + food]
 
     # Marine and fish production handled separately
     marine_surrogates = {"Aquatic Animals, Others": "total_catch_frac",
@@ -1196,7 +1196,7 @@ def downscale_metabolism(ds, metabolism_2015, fbscatdf, verbose=False):
     # Proportional TMR allocation to food supply
     for food in foods:
         df[f"tmr_{food}"] = df['tmr_MCal'] * df[f'FoodSupplyMCal {food}'].fillna(0) / df['FoodSupplyMCal']
-        ds[f"tmr_{food}"] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column=f"tmr_{food}", surrogate_file=ds.sel(time='2015'), tabular_file=df, verbose=verbose)[f"tmr_{food}"]
+        ds[f"tmr_{food}"] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column=f"tmr_{food}", surrogate_data=ds.sel(time='2015'), tabular_file=df, verbose=verbose)[f"tmr_{food}"]
 
     return ds
 
