@@ -21,6 +21,6 @@
 	"crop_prod_dir": "data/crop_prod",
 	"livestock_dir": "data/livestock_counts",
 	"data_dir": "data",
-	"image_dir": "new_images",
+	"image_dir": "images",
 	"output_dir": "output"
 }
