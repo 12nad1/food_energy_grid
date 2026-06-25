@@ -6,7 +6,7 @@ This is the code repository for the paper Energetic Closure of the Spatially Res
 
 ### 1. Create a Python Environment and Install Dependencies
 
-Install SESAME-IESD and its dependencies by following the instructions at: https://github.com/A2Faisal/SESAME. Below is an example 
+Install SESAME-IESD and its dependencies by following the instructions at: https://github.com/A2Faisal/SESAME (typically takes a few minutes to install). Below is an example 
 
 ```bash
 # create a new conda environment
@@ -58,7 +58,7 @@ python main.py --generate_data
 python main.py --config my_config.json --verbose --generate_data
 ```
 
-Note that running the full data generation takes several hours
+Note that running the full data generation can take several hours, however the visualization and analysis can take a few minutes and the generated data can be downloaded.
 
 ### Command Line Arguments
 
