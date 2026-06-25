@@ -16,6 +16,7 @@
 	"global_human_day": "data/global_human_day.csv",
 	"ghd_all_countries": "data/all_countries.csv",
 	"gdp_gapminder": "data/gdp_per_capita_gapminder.csv",
+	"gdp_world_bank": "data/world_bank_gdp.csv",
 	"population.nc": "data/Bh.Population.2000-2020.a.nc",
 	"fish_catch.nc": "data/B.fish_catch.nc",
 	"fao_ctry_to_regions.json": "data/fao_country_to_region.json",

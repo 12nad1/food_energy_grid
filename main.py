@@ -110,7 +110,7 @@ def old_adjust_production_based_on_trade(fbs):
     
     return fbs
 
-def adjust_production_based_on_trade(fbs, verbose=False):
+def adjust_production_based_on_trade(fbs, verbose=False, p_weight=1, e_weight=1, u_weight=1, i_weight=1):
     """Adjust production values to account for global trade imbalances using quadratic optimization
     
     Calculates adjustment factors based on the difference between imports and exports
@@ -139,10 +139,10 @@ def adjust_production_based_on_trade(fbs, verbose=False):
 
         objective = cp.Minimize(
             (
-                cp.sum_squares((P - P_orig) / (P_orig + epsilon)) +
-                cp.sum_squares((E - E_orig) / (E_orig + epsilon)) +
-                cp.sum_squares((U - U_orig) / (U_orig + epsilon)) + 
-                2*cp.sum_squares((I - I_orig) / (I_orig + epsilon))
+                p_weight*cp.sum_squares((P - P_orig) / (P_orig + epsilon)) +
+                e_weight*cp.sum_squares((E - E_orig) / (E_orig + epsilon)) +
+                u_weight*cp.sum_squares((U - U_orig) / (U_orig + epsilon)) + 
+                i_weight*cp.sum_squares((I - I_orig) / (I_orig + epsilon))
             )
         )
 
@@ -859,11 +859,11 @@ def process_activity_data(config, mixed_bmr_data, pdf):
     ghd_all = pd.read_csv(config['ghd_all_countries'])
     regions = pd.read_csv(config['country_regions'])
 
-    sourcedir = '~/Downloads/metabolism 3/'
-    concordance = pd.read_csv(sourcedir + 'compendium_METS_MOOGAL_.csv')
-    ghd = pd.read_csv(sourcedir + 'global_human_day.csv')
-    ghd_all = pd.read_csv(sourcedir + 'all_countries.csv')
-    mixed_bmr_data = pd.read_csv(sourcedir + 'bmi_and_food_supply_data.csv')
+    #sourcedir = '~/Downloads/metabolism 3/'
+    #concordance = pd.read_csv(sourcedir + 'compendium_METS_MOOGAL_.csv')
+    #ghd = pd.read_csv(sourcedir + 'global_human_day.csv')
+    #ghd_all = pd.read_csv(sourcedir + 'all_countries.csv')
+    #mixed_bmr_data = pd.read_csv(sourcedir + 'bmi_and_food_supply_data.csv')
 
 
     concordance = concordance.query("ignore != 'x'").drop('ignore', axis=1)
@@ -1137,8 +1137,8 @@ def downscale_animal_counts(ds, livestock_df, fao_country_to_region, lsu_df):
 
     new_lsu_df = pd.DataFrame(list(fao_country_to_region.items()), columns=['ISO3', 'Region']).merge(lsu_df, on='Region')  
     for animal_key, animal_name in abbrev_to_livestock.items():
-        #ds[animal_key + 'LSU'] = ssm.table_2_grid(animal_key, 'LSU', ds, tabular_file=livestock_df[livestock_df['Item'] == animal_name])['LSU']
-        ds[animal_key + 'LSU'] = ssm.table_2_grid(surrogate_variable=animal_key, tabular_column='LSU', surrogate_file=ds, tabular_file=livestock_df[livestock_df['Item'] == animal_name])['LSU'] # New method
+        #ds[animal_key + 'LSU'] = ssm.table_2_grid(animal_key, 'LSU', ds, tabular_data=livestock_df[livestock_df['Item'] == animal_name])['LSU']
+        ds[animal_key + 'LSU'] = ssm.table_2_grid(surrogate_variable=animal_key, tabular_column='LSU', surrogate_data=ds, tabular_data=livestock_df[livestock_df['Item'] == animal_name])['LSU'] # New method
 
     ds['total_livestockLSU'] = sum([ds[AnLSU].fillna(0) for AnLSU in ['BfLSU','ChLSU','CtLSU','GtLSU','PgLSU','ShLSU']]) #'DkLSU',
     ds['DairyProducersLSU'] = sum([ds[AnLSU].fillna(0) for AnLSU in ['BfLSU','CtLSU','GtLSU','ShLSU']])
@@ -1157,13 +1157,13 @@ def downscale_fao(ds, config, fbs, fbscatdf):
     for i, food in enumerate(list(fbs.Item.unique())):
         print(f'{100*i/len(list(fbs.Item.unique()))}% done, {food}')
         if item_to_surrogate[food] != 'NonSpatial':
-            ds['fbs_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='ProdMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['ProdMCal ' + food]
-            ds['avail_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='AvailableProductionMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['AvailableProductionMCal ' + food]
-            # ds['fbs_prodT_' + food] = ssm.table_2_grid(item_to_surrogate[food], 'Production ' + food, ds, tabular_file=fbscatdf)['Production ' + food]
-        # ds['fbs_supT_' + food] = ssm.table_2_grid('pop2015', 'FoodSupplyT ' + food, ds, tabular_file=fbscatdf)['FoodSupplyT ' + food]
-        ds['fbs_cons_' + food] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='ConsMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['ConsMCal ' + food]
-        ds['fbs_supply_' + food] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='FoodSupplyMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['FoodSupplyMCal ' + food]
-        ds['fbs_feed_' + food] = ssm.table_2_grid(surrogate_variable='total_livestockLSU', tabular_column='FeedMCal ' + food, surrogate_file=ds, tabular_file=fbscatdf)['FeedMCal ' + food]
+            ds['fbs_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='ProdMCal ' + food, surrogate_data=ds, tabular_data=fbscatdf)['ProdMCal ' + food]
+            ds['avail_prod_' + food] = ssm.table_2_grid(surrogate_variable=item_to_surrogate[food], tabular_column='AvailableProductionMCal ' + food, surrogate_data=ds, tabular_data=fbscatdf)['AvailableProductionMCal ' + food]
+            # ds['fbs_prodT_' + food] = ssm.table_2_grid(item_to_surrogate[food], 'Production ' + food, ds, tabular_data=fbscatdf)['Production ' + food]
+        # ds['fbs_supT_' + food] = ssm.table_2_grid('pop2015', 'FoodSupplyT ' + food, ds, tabular_data=fbscatdf)['FoodSupplyT ' + food]
+        ds['fbs_cons_' + food] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='ConsMCal ' + food, surrogate_data=ds, tabular_data=fbscatdf)['ConsMCal ' + food]
+        ds['fbs_supply_' + food] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column='FoodSupplyMCal ' + food, surrogate_data=ds, tabular_data=fbscatdf)['FoodSupplyMCal ' + food]
+        ds['fbs_feed_' + food] = ssm.table_2_grid(surrogate_variable='total_livestockLSU', tabular_column='FeedMCal ' + food, surrogate_data=ds, tabular_data=fbscatdf)['FeedMCal ' + food]
 
     # Marine and fish production handled separately
     marine_surrogates = {"Aquatic Animals, Others": "total_catch_frac",
@@ -1195,8 +1195,8 @@ def downscale_metabolism(ds, metabolism_2015, fbscatdf, verbose=False):
     df['FoodSupplyMCal'] = sum(df[f'FoodSupplyMCal {f}'].fillna(0) for f in foods)
     # Proportional TMR allocation to food supply
     for food in foods:
-        df[f"tmr_{food}"] = df['tmr_MCal'] * df[f'FoodSupplyMCal {food}'].fillna(0) / df['FoodSupplyMCal']
-        ds[f"tmr_{food}"] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column=f"tmr_{food}", surrogate_file=ds.sel(time='2015'), tabular_file=df, verbose=verbose)[f"tmr_{food}"]
+        df[f"tmr_{food}"] = df['tmr_MCal'] * df[f'FoodSupplyMCal {food}'].fillna(0) / df['FoodSupplyMCal'].replace(0,1)
+        ds[f"tmr_{food}"] = ssm.table_2_grid(surrogate_variable='pop2015', tabular_column=f"tmr_{food}", surrogate_data=ds.sel(time='2015'), tabular_data=df, verbose=verbose)[f"tmr_{food}"]
 
     return ds
 
@@ -1507,6 +1507,8 @@ def make_metabolism_production_maps(ds, image_dir, map_projection='Robinson', th
     my_cmap = sns.color_palette("flare", as_cmap=True)
     my_norm = colors.LogNorm(vmin=thresh, vmax=1e7)
     my_norm = colors.Normalize(vmin=thresh, vmax=1e6)
+    my_norm = colors.Normalize(vmin=thresh / 1e6, vmax=1)  # or just vmin=0 if you're using the full range
+
 
     ##################
     ### PRODUCTION ###
@@ -1522,11 +1524,16 @@ def make_metabolism_production_maps(ds, image_dir, map_projection='Robinson', th
 
     min_thresh_mask = prod_p_sqkm_p_day_da.to_numpy() > thresh
     mask = has_data_mask & min_thresh_mask
+    
+    # Normalize to units of Millions of kcal
+    prod_p_sqkm_p_day_da = prod_p_sqkm_p_day_da / 1e6
+    
     prod_p_sqkm_p_day_da = prod_p_sqkm_p_day_da.where(mask, other=np.nan)
 
+
     #prod_p_sqm_p_day_da /= 1e3 # convert to units of Millions
-    prod_p_sqkm_p_day_da.attrs = {'long_name': 'Total Production', 'units': 'Calories / sqkm / day'}
-    plot_da(prod_p_sqkm_p_day_da, cmap=my_cmap, norm=my_norm, projection=map_projection, save_to_path=os.path.join(image_dir,'total_prod_map.png'))
+    prod_p_sqkm_p_day_da.attrs = {'long_name': 'Total Production', 'units': 'Millions of kcal/km²/day'}
+    plot_da(prod_p_sqkm_p_day_da, cmap=my_cmap, norm=my_norm, projection=map_projection, save_to_path=os.path.join(image_dir,'total_prod_map.pdf'))
 
     ##################
     ### METABOLISM ###
@@ -1535,20 +1542,24 @@ def make_metabolism_production_maps(ds, image_dir, map_projection='Robinson', th
     tmrda = tmr * 10**12 / ds['grid_area'] / 365 #6 for m to km, 6 for MC to C
     tmrda_full = tmrda.copy()
     min_thresh_mask = tmrda.to_numpy() > thresh
+
+    # Normalize to units of Millions of kcal
+    tmrda = tmrda / 1e6
+
     tmrda = tmrda.where(min_thresh_mask)
 
     #tmrda /= 1e3 # convert to units of Millions
-    tmrda.attrs = {'long_name': 'Total Metabolic Rate', 'units': 'Calories / sqkm / day'}
+    tmrda.attrs = {'long_name': 'Total Metabolic Rate', 'units': 'Millions of kcal/km²/day'}
 
-    plot_da(tmrda, cmap=my_cmap, norm=my_norm, projection=map_projection, save_to_path=os.path.join(image_dir,'metabolism_map.png'))
+    plot_da(tmrda, cmap=my_cmap, norm=my_norm, projection=map_projection, save_to_path=os.path.join(image_dir,'metabolism_map.pdf'))
     
     # Histograms
-    # hist_da(prodda, title='Distribution of Caloric Production', xlabel='Calories Production per sqkm per day', ylabel='Number of Grid Cells', savefig_path=os.path.join(image_dir,'prod_dist_hist.png'), min_val=-2)
-    # hist_da(tmrda_full, title='Distribution of Human Metabolism', xlabel='Calories Metabolized per sqkm per day', ylabel='Number of Grid Cells', savefig_path=os.path.join(image_dir,'cons_dist_hist.png'), min_val=-2)
+    # hist_da(prodda, title='Distribution of Caloric Production', xlabel='kilocalories Production per sqkm per day', ylabel='Number of Grid Cells', savefig_path=os.path.join(image_dir,'prod_dist_hist.pdf'), min_val=-2)
+    # hist_da(tmrda_full, title='Distribution of Human Metabolism', xlabel='kilocalories Metabolized per sqkm per day', ylabel='Number of Grid Cells', savefig_path=os.path.join(image_dir,'cons_dist_hist.pdf'), min_val=-2)
     prodda.attrs = {'long_name': 'Production Density'}
     tmrda_full.attrs = {'long_name': 'Metabolism Density'}
     # title='Distribution of Human Metabolism and Production',
-    hist_da([prodda, tmrda_full], xlabel='Calories per sqkm per day', ylabel='Number of Grid Cells', savefig_path=os.path.join(image_dir,'prod_cons_dist_hist.png'), min_val=-2)
+    hist_da([prodda, tmrda_full], xlabel='kcal/km²/day', ylabel='Number of Grid Cells', savefig_path=os.path.join(image_dir,'prod_cons_dist_hist.pdf'), min_val=-2)
 
 # Figure 3
 def make_netflow_maps(ds, fbs, image_dir):
@@ -1581,13 +1592,13 @@ def make_netflow_maps(ds, fbs, image_dir):
 
         ds['netf_'+type].attrs = {
             'long_name': 'Net Caloric Surplus of ' + type,
-            'units': 'Calories / sqkm / day',
+            'units': 'kilocalories / sqkm / day',
             'description': 'This variable contains total caloric surplus/deficit for each grid cell'
         }
         
         my_cmap = create_diverging_cmap('black', cat_color_dict[type])
         my_norm = colors.Normalize(vmin=-1e5, vmax=1e5)
-        plot_da(ds['netf_'+type], cmap=my_cmap, norm=my_norm, save_to_path=os.path.join(image_dir,'nf_'+type+'_map.png'))
+        plot_da(ds['netf_'+type], cmap=my_cmap, norm=my_norm, save_to_path=os.path.join(image_dir,'nf_'+type+'_map.pdf'))
 
         #ds['netf'] = sum([ds['netf_'+type] for type in fbs.Category.unique()])
 
@@ -1734,13 +1745,13 @@ def food_supply_metabolism_regression_w_residuals(fbs, config):
 
     #ax2.plot(xp, line, color='black', label=f'Best Fit (R={r_value:.2f}, m={slope:.2f})')
     ax2.plot(xp, np.zeros(len(xp)), color='black', linestyle=':', label='Zero Line')
-    ax2.set_ylabel('Residual Calories to the Best Fit (kcal/person/day)')
+    ax2.set_ylabel('Residual kilocalories to the Best Fit (kcal/person/day)')
     ax2.set_xlabel('Log GDP Per Capita')
-    ax2.set_title(' GDP per Capita vs Best Fit Residual Food Supply Calories')
+    ax2.set_title(' GDP per Capita vs Best Fit Residual Food Supply Kilocalories')
 
     #plt.legend()
     plt.legend(loc='lower left')#, bbox_to_anchor=(0.5, -0.1), ncol=2)
-    plt.savefig(os.path.join(config['image_dir'],'metabolism_food_supply_with_residual_vs_gdp.png'))
+    plt.savefig(os.path.join(config['image_dir'],'metabolism_food_supply_with_residual_vs_gdp.pdf'))
     #plt.show()
     # print('Best fit p value: ', best_fit_p_value)
     # print('Residual correlatipn r^2 vlaue: ', r_value**2)    
@@ -1773,7 +1784,7 @@ def food_supply_metabolism_regression(fbs, metabolism_2015, config):
     df = df[~df['Area'].isin(['Micronesia (Federated States of)', 'China'])]
 
     # Include GDP from World Bank 2015
-    gdp = pd.read_csv('/Users/maxwellkaye/Documents/PhD Research/data/world_bank_gdp.csv')
+    gdp = pd.read_csv(config['gdp_world_bank'])
     df = df.merge(gdp[['Country Code', '2015']], left_on='ISO', right_on='Country Code', how='left').drop(columns=['Country Code'])
     df = df.rename(columns={'2015':'2015 GDP'})
 
@@ -1787,8 +1798,8 @@ def food_supply_metabolism_regression(fbs, metabolism_2015, config):
     # Parameters
     header1 = 'total_metabolic_rate'
     header2 = 'CalpPersonpDay'
-    xlabel = 'Average National Total Metabolic Rate cal/person/day'
-    ylabel = 'Average National Food Supply (cal/person/day)'
+    xlabel = 'Average National Total Metabolic Rate (kcal/cap/day)'
+    ylabel = 'Average National Food Supply (kcal/cap/day)'
     title = 'Food Supply Vs. Average Metabolic Rate'
 
     x = df[header1]
@@ -1831,6 +1842,9 @@ def food_supply_metabolism_regression(fbs, metabolism_2015, config):
     # Plot the weighted regression line
     ax1.plot(xp, line, color='black',  alpha=0.5, linestyle='-', label=f'Weighted Best Fit (R={r_value:.2f}, m={slope:.2f})')
 
+    # Plot the 1-1 line (y = x)
+    ax1.plot(xp, xp, color='black', alpha=0.5, linestyle='--', label='1-1 Line')
+
     for i, cntry_name in df['ISO_Large_Pop_Only'][mask].items():
         if cntry_name:  # Only annotate non-empty labels
             # Calculate offset based on point size (pop/1e5)
@@ -1857,7 +1871,7 @@ def food_supply_metabolism_regression(fbs, metabolism_2015, config):
 
     plt.legend(loc='upper left')
     plt.tight_layout()
-    plt.savefig(os.path.join(config['image_dir'],'metabolism_food_supply_gdp.png'))
+    plt.savefig(os.path.join(config['image_dir'],'metabolism_food_supply_gdp.pdf'))
 
 # Figure 5b
 def metabolism_time_series(global_metabolism, config):
@@ -1886,11 +1900,11 @@ def metabolism_time_series(global_metabolism, config):
     ax.set_ylim([2000,3100])
     ax.set_xlim([1992, 2019])
     ax.set_yticks(np.arange(2000,3100,200))
-    ax.set_ylabel('Calories per capita per day')
+    ax.set_ylabel('kilocalories per capita per day')
     ax.set_xlabel('Year')
     ax.legend(loc='lower right')
     plt.tight_layout()
-    plt.savefig(os.path.join(config['image_dir'],'metabolism_time_series.png'))
+    plt.savefig(os.path.join(config['image_dir'],'metabolism_time_series.pdf'))
 
 # All figures
 def create_figures(ds, fbs, metabolism_2015, metabolism_df, config, verbose=False):

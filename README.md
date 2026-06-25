@@ -5,23 +5,28 @@ This is the code repository for the paper Energetic Closure of the Spatially Res
 ## Setup Instructions
 
 ### 1. Create a Python Environment and Install Dependencies
+(may take a few minutes)
 
 Install SESAME-IESD and its dependencies by following the instructions at: https://github.com/A2Faisal/SESAME (typically takes a few minutes to install). Below is an example 
 
 ```bash
 # create a new conda environment
-conda create -n my_env
+conda create -name my_env
 # activate the environment
 conda activate my_env
 # install pip
 conda install pip
-# install SESAME from testPyPI
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple sesame-iesd==0.1.2
-# install cvxpy
+## install SESAME from testPyPI
+#pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple sesame-iesd==0.1.2
+# install SESAME from pip
+pip install sesame-iesd==1.0.1
+# install cvxpy and h5py
 pip install cvxpy==1.7.1
+pip install h5py==3.16.0
 ```
 
 ### 2. Download data
+(may take a few minutes)
 
 All data used in this resesarch was openly available. The input data and the output data are available at the Zenodo directory at URL https://zenodo.org/records/16708221 with DOI 10.5281/zenodo.16708221.
 
@@ -41,9 +46,11 @@ The script can be run with various command line options:
 ```bash
 python main.py
 ```
-This will use the default `config.json` file in the current directory.
+This will use the default `config.json` file in the current directory. This can be used as a quick demo to generate the data from the output files, and will only take a few minutes.
 
 ### Advanced Usage
+(note that the --generate_data flag the code may take several hours)
+
 ```bash
 # Specify a custom config file
 python main.py --config path/to/your/config.json
